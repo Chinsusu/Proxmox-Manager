@@ -31,11 +31,20 @@ func (r *IdempotencyRepository) Get(ctx context.Context, scope, key string) (*do
 	return scanIdempotencyRecord(row)
 }
 
+// execQueryRower là Execer + QueryRower gộp lại — Store cần cả hai vì
+// insert xong phải đọc lại NGAY TRONG CÙNG connection/transaction của
+// caller (đọc qua r.db sẽ không thấy dòng vừa insert nếu caller đang ở
+// giữa một transaction chưa commit, dẫn tới false ErrNotFound).
+type execQueryRower interface {
+	Execer
+	QueryRower
+}
+
 // Store ghi bản ghi idempotency mới trong scope transaction của caller.
 // Nếu (scope, key) đã tồn tại với request_hash khác, trả
 // domain.ErrIdempotencyConflict (Phần II mục 10). Nếu request_hash
 // giống hệt, coi là no-op thành công (retry idempotent đúng nghĩa).
-func (r *IdempotencyRepository) Store(ctx context.Context, execer Execer, rec domain.IdempotencyRecord) error {
+func (r *IdempotencyRepository) Store(ctx context.Context, execer execQueryRower, rec domain.IdempotencyRecord) error {
 	_, err := execer.ExecContext(ctx, `
 		INSERT INTO idempotency_keys
 			(scope, key, request_hash, response_status, response_body, resource_id, expires_at)
@@ -54,7 +63,15 @@ func (r *IdempotencyRepository) Store(ctx context.Context, execer Execer, rec do
 	// loi - phai doc lai de phan biet "da ton tai giong het" voi "conflict
 	// that su" (Postgres khong co cach tra ve "0 rows affected vi WHERE
 	// khong khop" ma phan biet duoc voi "0 rows vi khong co conflict").
-	existing, getErr := r.Get(ctx, rec.Scope, rec.Key)
+	// Phai doc qua execer (cung connection/transaction) chu khong phai
+	// r.db, neu khong dong vua insert se khong thay duoc khi con dang o
+	// giua mot transaction chua commit.
+	row := execer.QueryRowContext(ctx, `
+		SELECT scope, key, request_hash, response_status, response_body, resource_id, expires_at, created_at
+		FROM idempotency_keys
+		WHERE scope = $1 AND key = $2 AND expires_at > now()
+	`, rec.Scope, rec.Key)
+	existing, getErr := scanIdempotencyRecord(row)
 	if getErr != nil {
 		return fmt.Errorf("storage: verify idempotency record: %w", getErr)
 	}

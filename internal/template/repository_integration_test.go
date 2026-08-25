@@ -3,6 +3,7 @@ package template
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -260,7 +261,9 @@ func TestRepository_List_FiltersByFamilyAndPaginates(t *testing.T) {
 	family := uniqueName(t, "family")
 	var created []*domain.Template
 	for i := 0; i < 3; i++ {
-		tpl, err := repo.Create(ctx, db, newDraftTemplate(family, clusterID, 9010+i))
+		draft := newDraftTemplate(family, clusterID, 9010+i)
+		draft.Version = fmt.Sprintf("2026.08.%d", i+1)
+		tpl, err := repo.Create(ctx, db, draft)
 		if err != nil {
 			t.Fatalf("Create() #%d error: %v", i, err)
 		}

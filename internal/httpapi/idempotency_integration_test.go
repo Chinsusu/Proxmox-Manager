@@ -48,7 +48,7 @@ func TestRunIdempotent_FirstCallRunsWork(t *testing.T) {
 	status, body, replayed, err := RunIdempotent(ctx, db, idem, "test", key, []byte(`{"a":1}`),
 		func(_ context.Context, _ *sql.Tx) (int, any, string, error) {
 			workCalls++
-			return http.StatusCreated, map[string]any{"id": "res-1"}, "res-1", nil
+			return http.StatusCreated, map[string]any{"id": "res-1"}, "00000000-0000-0000-0000-000000000001", nil
 		})
 	if err != nil {
 		t.Fatalf("RunIdempotent() error: %v", err)
@@ -80,7 +80,7 @@ func TestRunIdempotent_SameKeyAndHashReplaysWithoutRerunningWork(t *testing.T) {
 	var workCalls int
 	work := func(_ context.Context, _ *sql.Tx) (int, any, string, error) {
 		workCalls++
-		return http.StatusAccepted, map[string]any{"job_id": "job-1"}, "job-1", nil
+		return http.StatusAccepted, map[string]any{"job_id": "job-1"}, "00000000-0000-0000-0000-000000000002", nil
 	}
 	requestBody := []byte(`{"a":1}`)
 
