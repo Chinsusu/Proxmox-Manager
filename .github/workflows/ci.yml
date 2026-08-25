@@ -67,6 +67,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # gitleaks scan theo dai commit base..head cua PR - can full
+          # history, checkout mac dinh shallow-clone (depth=1) lam
+          # "unknown revision" (xem log job security lan chay truoc).
+          fetch-depth: 0
       - uses: gitleaks/gitleaks-action@v2
         env:
           # gitleaks-action >= v2 (2026) bat buoc token nay khi scan PR
