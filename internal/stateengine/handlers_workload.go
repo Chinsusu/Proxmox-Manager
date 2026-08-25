@@ -9,6 +9,7 @@ import (
 
 	"github.com/Chinsusu/vm-factory/internal/domain"
 	"github.com/Chinsusu/vm-factory/internal/ipam"
+	"github.com/Chinsusu/vm-factory/internal/observability"
 	"github.com/Chinsusu/vm-factory/internal/pgw"
 	"github.com/Chinsusu/vm-factory/internal/proxmox"
 	"github.com/Chinsusu/vm-factory/internal/storage"
@@ -36,6 +37,9 @@ type ApplyingWorkloadHandler struct {
 	PGW     pgw.Adapter
 	IPAM    *ipam.Repository
 	Runs    *storage.ValidationRunRepository
+	// Metrics, khi khác nil, ghi vmf_validation_total{type="workload",...}
+	// (tài liệu 09 mục 3.3) — optional, nil an toàn.
+	Metrics *observability.Metrics
 
 	// Adapters là registry tên adapter -> factory, đăng ký ở nơi wiring
 	// (cmd/worker khi triển khai). DefaultAdapter dùng khi instance
@@ -95,6 +99,7 @@ func (h *ApplyingWorkloadHandler) Execute(ctx context.Context, tctx *TransitionC
 	if pass {
 		result = domain.ValidationPass
 	}
+	h.Metrics.ObserveValidation("workload", string(result), adapterName)
 
 	nextState := domain.InstanceReady
 	if !pass {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -24,6 +25,18 @@ type ClientConfig struct {
 	// cluster production.
 	InsecureSkipVerify bool
 	RequestTimeout     time.Duration
+	// Metrics, khi khác nil, nhận một sự kiện cho MỖI request Proxmox
+	// (Phần 3 tài liệu 09: vmf_pve_api_requests_total/vmf_pve_api_latency_seconds).
+	// Optional — nil là no-op, không bắt buộc caller phải wiring metrics.
+	Metrics MetricsRecorder
+}
+
+// MetricsRecorder là hook observability tối thiểu Client gọi sau MỖI
+// request thật tới Proxmox — đặt ở đây (thay vì import internal/observability
+// trực tiếp) để package proxmox không phụ thuộc ngược vào observability;
+// *observability.Metrics thoả interface này qua duck typing.
+type MetricsRecorder interface {
+	ObserveProxmoxRequest(operation, status string, duration time.Duration)
 }
 
 // Client là HTTP client thô gọi REST API Proxmox bằng API token,
@@ -32,6 +45,7 @@ type Client struct {
 	baseURL    string
 	authHeader string
 	httpClient *http.Client
+	metrics    MetricsRecorder
 }
 
 // NewClient tạo Client từ ClientConfig.
@@ -49,6 +63,7 @@ func NewClient(cfg ClientConfig) *Client {
 				TLSClientConfig: &tls.Config{InsecureSkipVerify: cfg.InsecureSkipVerify}, //nolint:gosec // G402: co dieu kien qua ClientConfig.InsecureSkipVerify, mac dinh false, chi bat tuong minh cho lab/dev (xem doc field).
 			},
 		},
+		metrics: cfg.Metrics,
 	}
 }
 
@@ -59,8 +74,34 @@ type apiEnvelope struct {
 
 // do gọi một endpoint Proxmox, form-encode params theo đúng cách PVE
 // API nhận tham số (không phải JSON body), trả về phần "data" đã giải
-// nén. Lỗi được classify về *Error theo Phần III mục 11.
-func (c *Client) do(ctx context.Context, method, path string, params url.Values) (json.RawMessage, error) {
+// nén. Lỗi được classify về *Error theo Phần III mục 11. operation là
+// tên nghiệp vụ ổn định (vd "clone", "get_vm") dùng làm metric label —
+// KHÔNG dùng path thô vì path chứa node/vmid biến thiên, sẽ tạo cardinality
+// vô hạn cho vmf_pve_api_requests_total.
+func (c *Client) do(ctx context.Context, operation, method, path string, params url.Values) (json.RawMessage, error) {
+	start := time.Now()
+	data, err := c.doRequest(ctx, method, path, params)
+	if c.metrics != nil {
+		c.metrics.ObserveProxmoxRequest(operation, requestStatusLabel(err), time.Since(start))
+	}
+	return data, err
+}
+
+// requestStatusLabel map error về nhãn status ổn định cho metric — dùng
+// *Error.Code khi có (vd PVE_AUTH_FAILED) vì hữu ích hơn hẳn cho alert
+// (Phần 4 tài liệu 09: ProxmoxAuthFailed) so với riêng HTTP status thô.
+func requestStatusLabel(err error) string {
+	if err == nil {
+		return "ok"
+	}
+	var pveErr *Error
+	if errors.As(err, &pveErr) {
+		return pveErr.Code
+	}
+	return "network_error"
+}
+
+func (c *Client) doRequest(ctx context.Context, method, path string, params url.Values) (json.RawMessage, error) {
 	var body io.Reader
 	fullPath := c.baseURL + path
 

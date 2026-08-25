@@ -27,7 +27,7 @@ func NewAdapter(client *Client) *Adapter {
 // VMID trong DB trước side effect tiếp theo (Phần II mục 8.1) — adapter
 // chỉ trả gợi ý, không tự giữ chỗ.
 func (a *Adapter) AllocateNextVMID(ctx context.Context) (int, error) {
-	data, err := a.client.do(ctx, "GET", "/cluster/nextid", nil)
+	data, err := a.client.do(ctx, "allocate_next_vmid", "GET", "/cluster/nextid", nil)
 	if err != nil {
 		return 0, err
 	}
@@ -59,7 +59,7 @@ func (a *Adapter) Clone(ctx context.Context, req CloneRequest) (TaskRef, error) 
 	}
 
 	path := fmt.Sprintf("/nodes/%s/qemu/%d/clone", req.SourceNode, req.SourceVMID)
-	data, err := a.client.do(ctx, "POST", path, params)
+	data, err := a.client.do(ctx, "clone", "POST", path, params)
 	if err != nil {
 		return TaskRef{}, err
 	}
@@ -98,7 +98,7 @@ func (a *Adapter) Configure(ctx context.Context, req ConfigureRequest) (TaskRef,
 	}
 
 	path := fmt.Sprintf("/nodes/%s/qemu/%d/config", req.Node, req.VMID)
-	data, err := a.client.do(ctx, "POST", path, params)
+	data, err := a.client.do(ctx, "configure", "POST", path, params)
 	if err != nil {
 		return TaskRef{}, err
 	}
@@ -124,7 +124,7 @@ func (a *Adapter) Stop(ctx context.Context, ref VMRef) (TaskRef, error) {
 
 func (a *Adapter) statusAction(ctx context.Context, ref VMRef, action string) (TaskRef, error) {
 	path := fmt.Sprintf("/nodes/%s/qemu/%d/status/%s", ref.Node, ref.VMID, action)
-	data, err := a.client.do(ctx, "POST", path, url.Values{})
+	data, err := a.client.do(ctx, "vm_"+action, "POST", path, url.Values{})
 	if err != nil {
 		return TaskRef{}, err
 	}
@@ -143,7 +143,7 @@ func (a *Adapter) Delete(ctx context.Context, ref VMRef, purge bool) (TaskRef, e
 	params := url.Values{}
 	params.Set("purge", boolParam(purge))
 	path := fmt.Sprintf("/nodes/%s/qemu/%d", ref.Node, ref.VMID)
-	data, err := a.client.do(ctx, "DELETE", path, params)
+	data, err := a.client.do(ctx, "delete", "DELETE", path, params)
 	if err != nil {
 		return TaskRef{}, err
 	}
@@ -157,7 +157,7 @@ func (a *Adapter) Delete(ctx context.Context, ref VMRef, purge bool) (TaskRef, e
 // GetTask gọi GET /nodes/{node}/tasks/{upid}/status.
 func (a *Adapter) GetTask(ctx context.Context, task TaskRef) (TaskStatus, error) {
 	path := fmt.Sprintf("/nodes/%s/tasks/%s/status", task.Node, task.UPID)
-	data, err := a.client.do(ctx, "GET", path, nil)
+	data, err := a.client.do(ctx, "get_task", "GET", path, nil)
 	if err != nil {
 		return TaskStatus{}, err
 	}
@@ -174,7 +174,7 @@ func (a *Adapter) GetTask(ctx context.Context, task TaskRef) (TaskStatus, error)
 // GetVM gọi GET /nodes/{node}/qemu/{vmid}/status/current.
 func (a *Adapter) GetVM(ctx context.Context, ref VMRef) (VMObservedState, error) {
 	path := fmt.Sprintf("/nodes/%s/qemu/%d/status/current", ref.Node, ref.VMID)
-	data, err := a.client.do(ctx, "GET", path, nil)
+	data, err := a.client.do(ctx, "get_vm", "GET", path, nil)
 	if err != nil {
 		return VMObservedState{}, err
 	}
@@ -194,7 +194,7 @@ func (a *Adapter) GetVM(ctx context.Context, ref VMRef) (VMObservedState, error)
 // MAC tường minh), phục vụ ID-005 MAC match (Phần VIII mục 4) ở P0-07.
 func (a *Adapter) GetConfig(ctx context.Context, ref VMRef) (VMConfig, error) {
 	path := fmt.Sprintf("/nodes/%s/qemu/%d/config", ref.Node, ref.VMID)
-	data, err := a.client.do(ctx, "GET", path, nil)
+	data, err := a.client.do(ctx, "get_config", "GET", path, nil)
 	if err != nil {
 		return VMConfig{}, err
 	}
@@ -235,7 +235,7 @@ func parseNet0MAC(net0 string) string {
 // "cần chờ thêm" với lỗi thật (Phần III mục 8.2, WAITING_GUEST).
 func (a *Adapter) GuestPing(ctx context.Context, ref VMRef) error {
 	path := fmt.Sprintf("/nodes/%s/qemu/%d/agent/ping", ref.Node, ref.VMID)
-	_, err := a.client.do(ctx, "POST", path, url.Values{})
+	_, err := a.client.do(ctx, "guest_ping", "POST", path, url.Values{})
 	if err == nil {
 		return nil
 	}
