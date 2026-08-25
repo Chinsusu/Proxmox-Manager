@@ -67,6 +67,17 @@ func TestReaper_DoesNotReleaseWhenJobStillActive(t *testing.T) {
 	`, instanceID); err != nil {
 		t.Fatalf("seed active job: %v", err)
 	}
+	// QUAN TRONG: job nay o state QUEUED, se bi Claim() cua goi ipam
+	// khac (vd internal/jobs) nhat nham neu khong don - Claim() lay
+	// job kha dung BAT KY trong toan bang, khong loc theo instance.
+	// Chay CI thuc te da bat duoc loi nay (Claim o package khac lay
+	// nham job con sot lai o day khi 2 package chay song song tren
+	// cung postgres). Don ngay, dang ky truoc cleanup cua
+	// seedInstanceForIPAM de chay truoc no (t.Cleanup la LIFO), tranh
+	// FK violation am tham khi xoa vm_instances.
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(context.Background(), `DELETE FROM provisioning_jobs WHERE instance_id = $1`, instanceID)
+	})
 
 	alloc, err := ipamRepo.ReserveNextFree(ctx, segmentID, instanceID, time.Second)
 	if err != nil {
