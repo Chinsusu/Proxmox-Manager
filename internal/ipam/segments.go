@@ -41,7 +41,7 @@ func (r *SegmentRepository) Create(ctx context.Context, seg domain.NetworkSegmen
 
 	row := r.db.QueryRowContext(ctx, `
 		INSERT INTO network_segments (name, cidr, gateway, bridge, dns_servers, ipv6_policy, allocation_strategy, exclusions)
-		VALUES ($1, $2::cidr, $3::inet, $4, string_to_array(NULLIF($5, ''), ',')::inet[], $6, $7, $8)
+		VALUES ($1, $2::cidr, $3::inet, $4, COALESCE(string_to_array(NULLIF($5, ''), ','), ARRAY[]::text[])::inet[], $6, $7, $8)
 		RETURNING `+segmentColumns, seg.Name, seg.CIDR, seg.Gateway, seg.Bridge, strings.Join(seg.DNSServers, ","), ipv6Policy, allocStrategy, exclusions)
 	return scanSegment(row)
 }

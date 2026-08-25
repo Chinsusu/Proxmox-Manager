@@ -210,14 +210,20 @@ func TestRepository_Heartbeat_WrongOwnerFails(t *testing.T) {
 	jobID := seedJob(ctx, t, db, instanceID)
 	repo := NewRepository(db)
 
-	if _, err := repo.Claim(ctx, "worker-owner", 90*time.Second); err != nil {
+	// Lease duration rong rai (khong phai 90s sat nut) de tranh flaky
+	// khi CI chay nhieu integration test song song tren cung postgres
+	// service duoi -race, co the lam cham thoi gian giua Claim va
+	// Heartbeat du de lease_expires_at cu bi vuot qua now().
+	const leaseDuration = 10 * time.Minute
+
+	if _, err := repo.Claim(ctx, "worker-owner", leaseDuration); err != nil {
 		t.Fatalf("Claim() error: %v", err)
 	}
 
-	if err := repo.Heartbeat(ctx, jobID, "worker-owner", 90*time.Second); err != nil {
+	if err := repo.Heartbeat(ctx, jobID, "worker-owner", leaseDuration); err != nil {
 		t.Fatalf("Heartbeat() by owner should succeed, got: %v", err)
 	}
-	if err := repo.Heartbeat(ctx, jobID, "worker-imposter", 90*time.Second); !errors.Is(err, domain.ErrLeaseLost) {
+	if err := repo.Heartbeat(ctx, jobID, "worker-imposter", leaseDuration); !errors.Is(err, domain.ErrLeaseLost) {
 		t.Fatalf("Heartbeat() by non-owner error = %v, want domain.ErrLeaseLost", err)
 	}
 }
