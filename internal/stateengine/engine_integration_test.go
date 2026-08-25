@@ -131,7 +131,6 @@ func TestEngine_FullPipeline_RealCluster(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PVE_SOURCE_VMID must be a valid integer: %v", err)
 	}
-	pveNode := os.Getenv("PVE_NODE")
 	pveBridge := os.Getenv("PVE_BRIDGE")
 
 	db := openTestDB(t)
@@ -172,11 +171,10 @@ func TestEngine_FullPipeline_RealCluster(t *testing.T) {
 	engine := NewEngine(db, instancesRepo, jobsRepo, auditWriter)
 	engine.Register(domain.InstanceRequested, &RequestedHandler{Templates: templatesRepo})
 	engine.Register(domain.InstanceReserving, &ReservingHandler{
-		IPAM: ipamRepo, Proxmox: adapter, Node: pveNode, SegmentID: segmentID, ReservationTTL: 10 * time.Minute,
+		IPAM: ipamRepo, Proxmox: adapter, Templates: templatesRepo, SegmentID: segmentID, ReservationTTL: 10 * time.Minute,
 	})
 	engine.Register(domain.InstanceCloning, &CloningHandler{
-		Proxmox: adapter, ClusterID: clusterID, SourceVMID: sourceVMID,
-		Storage: os.Getenv("PVE_STORAGE"), Pool: os.Getenv("PVE_POOL"),
+		Proxmox: adapter, Templates: templatesRepo, Pool: os.Getenv("PVE_POOL"),
 	})
 	engine.Register(domain.InstanceConfiguring, &ConfiguringHandler{
 		Proxmox: adapter, Cores: 1, MemoryMB: 512, Bridge: pveBridge, IPConfig0: "ip=dhcp",

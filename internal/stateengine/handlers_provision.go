@@ -8,6 +8,7 @@ import (
 
 	"github.com/Chinsusu/vm-factory/internal/domain"
 	"github.com/Chinsusu/vm-factory/internal/proxmox"
+	"github.com/Chinsusu/vm-factory/internal/template"
 )
 
 // cloningCheckpoint kế thừa reservingCheckpoint (Node/VMID) qua embed
@@ -21,14 +22,17 @@ type cloningCheckpoint struct {
 // Idempotent: nếu CloneTaskUPID đã có trong checkpoint (retry sau
 // worker crash), không gọi Clone() lại — chỉ tiếp tục poll task đã có.
 //
+// ClusterID/SourceVMID/Storage đọc từ template (P0-06: mỗi template tự
+// khai báo pve_cluster_id/pve_template_vmid/storage nguồn) thay vì field
+// tĩnh — worker clone đúng nguồn cho MỌI template ACTIVE thay vì chỉ
+// đúng cho một template hardcode lúc wiring.
+//
 // Giản lược so với Phần III mục 12 (reconciliation đầy đủ qua tìm VM
 // bằng external tag khi cả checkpoint lẫn worker đều mất dấu) — gap
 // đã biết, để lại cho lần củng cố sau (cần discovery API riêng).
 type CloningHandler struct {
 	Proxmox      *proxmox.Adapter
-	ClusterID    string
-	SourceVMID   int
-	Storage      string
+	Templates    *template.Repository
 	Pool         string
 	CloneTimeout time.Duration
 }
@@ -41,14 +45,19 @@ func (h *CloningHandler) Execute(ctx context.Context, tctx *TransitionContext) (
 	}
 	ref := proxmox.VMRef{Node: cp.Node, VMID: cp.VMID}
 
+	tpl, err := h.Templates.Get(ctx, tctx.Instance.TemplateID)
+	if err != nil {
+		return TransitionResult{}, fmt.Errorf("cloning: load template: %w", err)
+	}
+
 	if cp.CloneTaskUPID == "" {
 		task, err := h.Proxmox.Clone(ctx, proxmox.CloneRequest{
 			SourceNode:  cp.Node,
-			SourceVMID:  h.SourceVMID,
+			SourceVMID:  tpl.PVETemplateVMID,
 			TargetNode:  cp.Node,
 			TargetVMID:  cp.VMID,
 			Name:        tctx.Instance.Hostname,
-			Storage:     h.Storage,
+			Storage:     tpl.Storage,
 			Pool:        h.Pool,
 			FullClone:   true,
 			Description: fmt.Sprintf("vmf.instance_id=%s vmf.job_id=%s", tctx.Instance.ID, tctx.Job.ID),
@@ -86,7 +95,7 @@ func (h *CloningHandler) Execute(ctx context.Context, tctx *TransitionContext) (
 	return TransitionResult{
 		NextState:      domain.InstanceConfiguring,
 		CheckpointData: data,
-		PVEPlacement:   &PVEPlacement{ClusterID: h.ClusterID, Node: cp.Node, VMID: cp.VMID},
+		PVEPlacement:   &PVEPlacement{ClusterID: tpl.PVEClusterID, Node: cp.Node, VMID: cp.VMID},
 	}, nil
 }
 

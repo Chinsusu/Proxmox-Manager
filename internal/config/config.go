@@ -60,6 +60,10 @@ type ProxmoxClusterConfig struct {
 	CAFile          string   `yaml:"ca_file"`
 	RequestTimeout  Duration `yaml:"request_timeout"`
 	TaskTimeout     Duration `yaml:"task_timeout"`
+	// InsecureSkipVerify chỉ dùng cho lab/dev self-signed cert (Phần III
+	// mục 2 yêu cầu CA validation bắt buộc ở production — internal/proxmox
+	// chưa consume CAFile, gap đã biết). Mặc định false.
+	InsecureSkipVerify bool `yaml:"insecure_skip_verify"`
 }
 
 // ProxmoxConfig liệt kê mọi Proxmox cluster đã đăng ký.
@@ -77,13 +81,31 @@ type PGWConfig struct {
 
 // ProvisioningConfig cấu hình concurrency và retry cho provisioning worker.
 type ProvisioningConfig struct {
-	DefaultCloneMode      string   `yaml:"default_clone_mode"`
-	WorkerConcurrency     int      `yaml:"worker_concurrency"`
-	PerPVENodeConcurrency int      `yaml:"per_pve_node_concurrency"`
-	PerStorageConcurrency int      `yaml:"per_storage_concurrency"`
-	JobLease              Duration `yaml:"job_lease"`
-	JobHeartbeat          Duration `yaml:"job_heartbeat"`
-	MaxAttempts           int      `yaml:"max_attempts"`
+	DefaultCloneMode      string                     `yaml:"default_clone_mode"`
+	WorkerConcurrency     int                        `yaml:"worker_concurrency"`
+	PerPVENodeConcurrency int                        `yaml:"per_pve_node_concurrency"`
+	PerStorageConcurrency int                        `yaml:"per_storage_concurrency"`
+	JobLease              Duration                   `yaml:"job_lease"`
+	JobHeartbeat          Duration                   `yaml:"job_heartbeat"`
+	MaxAttempts           int                        `yaml:"max_attempts"`
+	Defaults              ProvisioningDefaultsConfig `yaml:"defaults"`
+}
+
+// ProvisioningDefaultsConfig chốt profile mạng/tài nguyên dùng chung cho
+// MỌI instance — vm_instances.desired_config đã ghi network_segment_id/
+// egress_policy_id/resources riêng theo từng request (P0-09), nhưng
+// stateengine handlers (P0-05) chưa đọc field đó (gap đã biết, xem
+// comment ở ConfiguringHandler) nên worker cần MỘT profile mặc định để
+// chạy được, cho tới khi có bản củng cố đọc per-instance.
+type ProvisioningDefaultsConfig struct {
+	NetworkSegmentID string   `yaml:"network_segment_id"`
+	EgressPolicyID   string   `yaml:"egress_policy_id"`
+	Pool             string   `yaml:"pool"`
+	Bridge           string   `yaml:"bridge"`
+	IPConfig0        string   `yaml:"ipconfig0"`
+	Cores            int      `yaml:"cores"`
+	MemoryMB         int      `yaml:"memory_mb"`
+	ReservationTTL   Duration `yaml:"reservation_ttl"`
 }
 
 // GuestConfig cấu hình cách vmf-worker chờ và giao tiếp với guest OS.
