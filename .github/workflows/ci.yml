@@ -89,3 +89,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: npx --yes @stoplight/spectral-cli lint api/openapi.yaml
+
+  shellcheck:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck scripts/*.sh
