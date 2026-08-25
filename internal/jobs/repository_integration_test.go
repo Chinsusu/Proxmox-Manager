@@ -176,9 +176,28 @@ func TestRepository_Claim_NoJobAvailable(t *testing.T) {
 		t.Fatalf("seed future job: %v", err)
 	}
 
-	_, err := repo.Claim(ctx, "worker-1", 10*time.Minute)
-	if !errors.Is(err, domain.ErrNotClaimable) {
-		t.Fatalf("Claim() error = %v, want domain.ErrNotClaimable", err)
+	// Claim() la global (khong scope theo test) - cac package khac chay
+	// song song tren CUNG Postgres CI co the co job claimable that su
+	// cua rieng chung, nen o day Claim() co the tra ve mot job KHAC that
+	// khong phai loi. Dieu can xac nhan la job cua CHINH test nay (future
+	// next_attempt_at) khong bao gio bi claim, bat ke Claim() tra gi.
+	claimed, err := repo.Claim(ctx, "worker-1", 10*time.Minute)
+	if err == nil && claimed.ID == jobID {
+		t.Fatalf("Claim() claimed a job with next_attempt_at in the future: %s", jobID)
+	}
+	if err != nil && !errors.Is(err, domain.ErrNotClaimable) {
+		t.Fatalf("Claim() unexpected error = %v", err)
+	}
+
+	unclaimed, err := repo.Get(ctx, jobID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if unclaimed.State != domain.JobQueued {
+		t.Fatalf("job state = %s, want QUEUED (future next_attempt_at must not be claimed)", unclaimed.State)
+	}
+	if unclaimed.LeaseOwner != nil {
+		t.Fatalf("job lease_owner = %v, want nil (future next_attempt_at must not be claimed)", *unclaimed.LeaseOwner)
 	}
 }
 
