@@ -27,4 +27,9 @@ var (
 	// ErrLeaseLost báo hiệu worker không còn giữ lease hợp lệ cho job
 	// (hết hạn hoặc bị worker khác tiếp quản) khi heartbeat/complete/fail.
 	ErrLeaseLost = errors.New("domain: job lease lost")
+
+	// ErrInvalidTransition báo hiệu một state transition không hợp lệ
+	// theo state machine đã chốt (template DRAFT→CANDIDATE→ACTIVE→
+	// DEPRECATED→REVOKED ở Phần IV mục 9, hoặc instance lifecycle).
+	ErrInvalidTransition = errors.New("domain: invalid state transition")
 )
