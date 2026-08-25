@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Chinsusu/vm-factory/internal/domain"
+	"github.com/Chinsusu/vm-factory/internal/pgw"
 	"github.com/Chinsusu/vm-factory/internal/proxmox"
 )
 
@@ -15,19 +16,25 @@ type networkBindingCheckpoint struct {
 	configuringCheckpoint
 	PGWClientID  string `json:"pgw_client_id,omitempty"`
 	PGWMappingID string `json:"pgw_mapping_id,omitempty"`
+	// DesiredGeneration là generation ActivateMapping trả về — cần lưu
+	// lại để ValidatingEgressHandler (P0-07) so sánh với
+	// EgressEvidence.RulesGeneration (EGR-002 "desired == applied",
+	// Phần VIII mục 6), không thể tính lại vì ActivateMapping là side
+	// effect không idempotent để gọi lại chỉ nhằm đọc giá trị.
+	DesiredGeneration int64 `json:"desired_generation,omitempty"`
 }
 
 // NetworkBindingHandler thực hiện 4.5 NETWORK_BINDING → BOOTING (Phần
 // V): tạo PGW client + mapping + activate TRƯỚC khi boot (Phần VII
 // mục 4: "Không tạo mapping ACTIVE sau khi guest đã boot").
 //
-// Dùng PGWAdapter qua interface — với NoopPGWAdapter (chưa có cluster
+// Dùng pgw.Adapter qua interface — với pgw.NoopAdapter (chưa có cluster
 // PGW thật, epic P0-04 chưa triển khai) mọi giá trị trả về đều đánh
 // dấu SIMULATED, KHÔNG phải egress binding thật. Chưa ghi bảng
 // egress_bindings (gap đã biết) — chỉ lưu tham chiếu trong
-// checkpoint_data, để lại cho lần củng cố khi có PGWAdapter thật.
+// checkpoint_data, để lại cho lần củng cố khi có pgw.Adapter thật.
 type NetworkBindingHandler struct {
-	PGW      PGWAdapter
+	PGW      pgw.Adapter
 	PolicyID string
 }
 
@@ -39,7 +46,7 @@ func (h *NetworkBindingHandler) Execute(ctx context.Context, tctx *TransitionCon
 	}
 
 	if cp.PGWClientID == "" {
-		clientRef, err := h.PGW.CreateClient(ctx, ClientRequest{
+		clientRef, err := h.PGW.CreateClient(ctx, pgw.ClientRequest{
 			Name:     tctx.Instance.Hostname,
 			Enabled:  true,
 			Metadata: map[string]string{"vmf_instance_id": tctx.Instance.ID},
@@ -55,7 +62,7 @@ func (h *NetworkBindingHandler) Execute(ctx context.Context, tctx *TransitionCon
 	}
 
 	if cp.PGWMappingID == "" {
-		mappingRef, err := h.PGW.CreateMapping(ctx, MappingRequest{ClientID: cp.PGWClientID, PolicyID: h.PolicyID})
+		mappingRef, err := h.PGW.CreateMapping(ctx, pgw.MappingRequest{ClientID: cp.PGWClientID, PolicyID: h.PolicyID})
 		if err != nil {
 			return TransitionResult{}, fmt.Errorf("network_binding: create pgw mapping: %w", err)
 		}
@@ -66,9 +73,11 @@ func (h *NetworkBindingHandler) Execute(ctx context.Context, tctx *TransitionCon
 		}
 	}
 
-	if _, err := h.PGW.ActivateMapping(ctx, cp.PGWMappingID); err != nil {
+	gen, err := h.PGW.ActivateMapping(ctx, cp.PGWMappingID)
+	if err != nil {
 		return TransitionResult{}, fmt.Errorf("network_binding: activate mapping: %w", err)
 	}
+	cp.DesiredGeneration = int64(gen)
 
 	data, _ := json.Marshal(cp)
 	return TransitionResult{NextState: domain.InstanceBooting, CheckpointData: data}, nil

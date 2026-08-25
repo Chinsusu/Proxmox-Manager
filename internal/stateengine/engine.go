@@ -1,3 +1,7 @@
+// Package stateengine implement transition registry, checkpoint,
+// retry/backoff, rollback, quarantine theo Phần V (VM Lifecycle State
+// Machine) — thay script tuyến tính bằng reconciler có contract rõ
+// (ADR-003).
 package stateengine
 
 import (
@@ -44,6 +48,13 @@ type TransitionResult struct {
 	// công). Handler không tự chạm DB — chỉ trả dữ liệu, Engine chịu
 	// trách nhiệm persist, giữ toàn bộ ghi DB tập trung một chỗ.
 	PVEPlacement *PVEPlacement
+	// PersistEvidence, khi khác nil, được Engine gọi TRONG CÙNG
+	// transaction với state transition (vd ghi identity_observations/
+	// validation_runs ở ValidatingIdentityHandler/ValidatingEgressHandler,
+	// P0-07) — evidence không được tồn tại tách rời khỏi transition mà
+	// nó chứng minh (Phần V mục 1: "mọi transition có checkpoint + audit
+	// event"; Phần VIII mục 1: evidence phải audit được).
+	PersistEvidence func(ctx context.Context, tx *sql.Tx) error
 }
 
 // PVEPlacement là placement Proxmox quan sát được sau Clone.
@@ -132,6 +143,11 @@ func (e *Engine) Step(ctx context.Context, job *domain.ProvisioningJob) (domain.
 		}
 		if err := e.jobsRepo.UpdateCheckpoint(ctx, tx, job.ID, result.NextState, result.CheckpointData); err != nil {
 			return fmt.Errorf("update checkpoint: %w", err)
+		}
+		if result.PersistEvidence != nil {
+			if err := result.PersistEvidence(ctx, tx); err != nil {
+				return fmt.Errorf("persist evidence: %w", err)
+			}
 		}
 		metadata, _ := json.Marshal(map[string]string{"from": string(inst.State), "to": string(result.NextState)})
 		if err := e.audit.Append(ctx, tx, domain.AuditEvent{

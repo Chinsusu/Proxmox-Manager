@@ -12,6 +12,7 @@ import (
 	"github.com/Chinsusu/vm-factory/internal/instance"
 	"github.com/Chinsusu/vm-factory/internal/ipam"
 	"github.com/Chinsusu/vm-factory/internal/jobs"
+	"github.com/Chinsusu/vm-factory/internal/pgw"
 	"github.com/Chinsusu/vm-factory/internal/proxmox"
 	"github.com/Chinsusu/vm-factory/internal/storage"
 )
@@ -40,7 +41,7 @@ type fullCheckpoint struct {
 // Workload Adapter thuộc epic P0-08 chưa triển khai — gap đã biết.
 type Rollback struct {
 	Proxmox   *proxmox.Adapter
-	PGW       PGWAdapter
+	PGW       pgw.Adapter
 	IPAM      *ipam.Repository
 	Instances *instance.Repository
 	JobsRepo  *jobs.Repository

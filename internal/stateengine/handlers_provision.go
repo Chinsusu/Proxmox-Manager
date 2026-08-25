@@ -94,6 +94,12 @@ func (h *CloningHandler) Execute(ctx context.Context, tctx *TransitionContext) (
 type configuringCheckpoint struct {
 	cloningCheckpoint
 	ConfigTaskUPID string `json:"config_task_upid,omitempty"`
+	// NIC0MAC là MAC net0 Proxmox tự sinh (Configure không truyền MAC
+	// tường minh — Phần III mục 6), đọc lại qua GetConfig sau khi
+	// Configure thành công. Dùng cho ID-005 MAC match ở P0-07 (Phần
+	// VIII mục 4) — handler validation đọc từ checkpoint thay vì gọi
+	// lại Proxmox.
+	NIC0MAC string `json:"nic0_mac,omitempty"`
 }
 
 // ConfiguringHandler thực hiện 4.4 CONFIGURING → NETWORK_BINDING (Phần
@@ -148,6 +154,14 @@ func (h *ConfiguringHandler) Execute(ctx context.Context, tctx *TransitionContex
 	}
 	if !status.Success() {
 		return TransitionResult{}, fmt.Errorf("configuring: configure task failed: %+v", status)
+	}
+
+	if cp.NIC0MAC == "" {
+		vmConfig, err := h.Proxmox.GetConfig(ctx, ref)
+		if err != nil {
+			return TransitionResult{}, fmt.Errorf("configuring: read back vm config for mac: %w", err)
+		}
+		cp.NIC0MAC = vmConfig.Net0MAC
 	}
 
 	data, _ := json.Marshal(cp)

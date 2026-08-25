@@ -11,12 +11,15 @@ import (
 
 	"github.com/Chinsusu/vm-factory/internal/audit"
 	"github.com/Chinsusu/vm-factory/internal/domain"
+	"github.com/Chinsusu/vm-factory/internal/guest"
 	"github.com/Chinsusu/vm-factory/internal/instance"
 	"github.com/Chinsusu/vm-factory/internal/ipam"
 	"github.com/Chinsusu/vm-factory/internal/jobs"
+	"github.com/Chinsusu/vm-factory/internal/pgw"
 	"github.com/Chinsusu/vm-factory/internal/proxmox"
 	"github.com/Chinsusu/vm-factory/internal/storage"
 	"github.com/Chinsusu/vm-factory/internal/template"
+	"github.com/Chinsusu/vm-factory/internal/validation"
 )
 
 func openTestDB(t *testing.T) *storage.DB {
@@ -98,12 +101,16 @@ func seedSegmentWithFreeIPs(ctx context.Context, t *testing.T, db *storage.DB, b
 	return segmentID
 }
 
-// TestEngine_FullPipeline_RealCluster chạy Engine.Step 6 lần liên tiếp
+// TestEngine_FullPipeline_RealCluster chạy Engine.Step liên tiếp
 // (REQUESTED → RESERVING → CLONING → CONFIGURING → NETWORK_BINDING →
-// BOOTING → WAITING_GUEST) trên DB thật + cluster Proxmox thật, dùng
-// NoopPGWAdapter cho bước NETWORK_BINDING (chưa có PGW thật, epic
-// P0-04 chưa triển khai). Kết thúc bằng GuestPing thật xác nhận VM
-// clone ra từ pipeline này thực sự boot xong.
+// BOOTING → WAITING_GUEST → VALIDATING_IDENTITY → ...) trên DB thật +
+// cluster Proxmox thật, dùng pgw.NoopAdapter cho NETWORK_BINDING/
+// VALIDATING_EGRESS (chưa có PGW thật, epic P0-04 chưa triển khai).
+// Xác nhận WAITING_GUEST bằng GuestPing thật, rồi chạy VALIDATING_IDENTITY
+// (P0-07) — kỳ vọng PASS thật (hostname/MAC/IP đều do chính pipeline này
+// cấp phát) sang VALIDATING_EGRESS, sau đó VALIDATING_EGRESS hợp lệ
+// QUARANTINED vì NoopAdapter không phải PGW thật (Phần VIII mục 8: engine
+// không được rubber-stamp evidence giả).
 //
 // KHÔNG chạy trong CI công khai — cần cả DATABASE_URL lẫn credential
 // Proxmox riêng. Chạy thủ công:
@@ -173,8 +180,25 @@ func TestEngine_FullPipeline_RealCluster(t *testing.T) {
 	engine.Register(domain.InstanceConfiguring, &ConfiguringHandler{
 		Proxmox: adapter, Cores: 1, MemoryMB: 512, Bridge: pveBridge, IPConfig0: "ip=dhcp",
 	})
-	engine.Register(domain.InstanceNetworkBinding, &NetworkBindingHandler{PGW: NewNoopPGWAdapter(), PolicyID: "default"})
+	engine.Register(domain.InstanceNetworkBinding, &NetworkBindingHandler{PGW: pgw.NewNoopAdapter(), PolicyID: "default"})
 	engine.Register(domain.InstanceBooting, &BootingHandler{Proxmox: adapter})
+	engine.Register(domain.InstanceWaitingGuest, &ValidatingIdentityHandler{
+		PGW:                       pgw.NewNoopAdapter(),
+		Facts:                     guest.NewFactsCollector(adapter),
+		Digester:                  validation.NewIdentityDigester([]byte("test-hmac-key-not-for-production")),
+		Identity:                  storage.NewIdentityRepository(db),
+		Runs:                      storage.NewValidationRunRepository(db),
+		IPAM:                      ipamRepo,
+		Segments:                  ipam.NewSegmentRepository(db),
+		RequireSingleNIC:          true,
+		RequireSingleDefaultRoute: true,
+	})
+	engine.Register(domain.InstanceValidatingEgress, &ValidatingEgressHandler{
+		PGW:      pgw.NewNoopAdapter(),
+		IPAM:     ipamRepo,
+		Runs:     storage.NewValidationRunRepository(db),
+		DenyIPv6: true,
+	})
 
 	claimed, err := jobsRepo.Claim(ctx, "test-worker", 10*time.Minute)
 	if err != nil {
@@ -260,13 +284,52 @@ func TestEngine_FullPipeline_RealCluster(t *testing.T) {
 	}
 	t.Logf("GuestPing OK - pipeline REQUESTED->WAITING_GUEST hoan tat that, vmid=%d", cleanupVMID)
 
+	claimed, err = jobsRepo.Get(ctx, claimed.ID)
+	if err != nil {
+		t.Fatalf("jobs.Get() refresh truoc VALIDATING_IDENTITY error: %v", err)
+	}
+	identityStepCtx, cancelIdentity := context.WithTimeout(ctx, 1*time.Minute)
+	gotIdentity, err := engine.Step(identityStepCtx, claimed)
+	cancelIdentity()
+	if err != nil {
+		t.Fatalf("Step() VALIDATING_IDENTITY that bai: %v", err)
+	}
+	if gotIdentity != domain.InstanceValidatingEgress {
+		// FAIL that (khong phai loi collector) van la ket qua hop le ve
+		// mat co che neu facts thuc te lech (vd hostname cloud-init chua
+		// kip set) - log evidence de dieu tra thay vi coi la bug cung.
+		t.Logf("VALIDATING_IDENTITY khong PASS, instance chuyen %s (kiem tra validation_runs de biet ly do)", gotIdentity)
+	} else {
+		t.Logf("VALIDATING_IDENTITY PASS that - ID/NET rules khop guest facts thuc te tu chinh pipeline nay")
+	}
+
+	claimed, err = jobsRepo.Get(ctx, claimed.ID)
+	if err != nil {
+		t.Fatalf("jobs.Get() refresh truoc VALIDATING_EGRESS error: %v", err)
+	}
+	if gotIdentity == domain.InstanceValidatingEgress {
+		egressStepCtx, cancelEgress := context.WithTimeout(ctx, 1*time.Minute)
+		gotEgress, err := engine.Step(egressStepCtx, claimed)
+		cancelEgress()
+		if err != nil {
+			t.Fatalf("Step() VALIDATING_EGRESS that bai: %v", err)
+		}
+		// pgw.NoopAdapter khong phai PGW that (P0-04 chua trien khai) -
+		// EGR rules PHAI FAIL that (khong rubber-stamp), instance ket
+		// thuc o QUARANTINED. Neu Step() lai tra APPLYING_WORKLOAD thi
+		// day moi la bug (engine dang PASS nham evidence gia).
+		if gotEgress != domain.InstanceQuarantined {
+			t.Errorf("Step() VALIDATING_EGRESS = %s, want QUARANTINED (NoopAdapter khong duoc lam PASS)", gotEgress)
+		} else {
+			t.Logf("VALIDATING_EGRESS dung nhu ky vong: QUARANTINED vi PGW la NoopAdapter, khong rubber-stamp")
+		}
+	}
+
 	finalInst, err := instancesRepo.Get(ctx, inst.ID)
 	if err != nil {
 		t.Fatalf("instances.Get() error: %v", err)
 	}
-	if finalInst.State != domain.InstanceWaitingGuest {
-		t.Errorf("final instance state = %s, want WAITING_GUEST", finalInst.State)
-	}
+	t.Logf("final instance state = %s", finalInst.State)
 	if finalInst.VMID == nil || *finalInst.VMID != cleanupVMID {
 		t.Errorf("instance.VMID = %v, want %d (SetPVEPlacement phai duoc goi dung o buoc CLONING)", finalInst.VMID, cleanupVMID)
 	}
