@@ -20,6 +20,7 @@ import (
 	"github.com/Chinsusu/vm-factory/internal/storage"
 	"github.com/Chinsusu/vm-factory/internal/template"
 	"github.com/Chinsusu/vm-factory/internal/validation"
+	"github.com/Chinsusu/vm-factory/internal/workload"
 )
 
 func openTestDB(t *testing.T) *storage.DB {
@@ -198,6 +199,21 @@ func TestEngine_FullPipeline_RealCluster(t *testing.T) {
 		IPAM:     ipamRepo,
 		Runs:     storage.NewValidationRunRepository(db),
 		DenyIPv6: true,
+	})
+	// Khong bao gio toi duoc trong test nay (NoopAdapter PGW luon FAIL
+	// EGR rules -> QUARANTINED truoc khi den APPLYING_WORKLOAD) - dang
+	// ky de wiring dai dien day du, xac nhan tu khong loi bien dich/lint,
+	// hanh vi that cua workload.SampleAdapter duoc verify rieng (khong
+	// qua Engine, xem P0-08 real-cluster verification).
+	engine.Register(domain.InstanceApplyingWorkload, &ApplyingWorkloadHandler{
+		Proxmox:        adapter,
+		PGW:            pgw.NewNoopAdapter(),
+		IPAM:           ipamRepo,
+		Runs:           storage.NewValidationRunRepository(db),
+		DefaultAdapter: "noop",
+		Adapters: map[string]WorkloadAdapterFactory{
+			"noop": func(_ *proxmox.Adapter) workload.Adapter { return workload.NewNoopAdapter() },
+		},
 	})
 
 	claimed, err := jobsRepo.Claim(ctx, "test-worker", 10*time.Minute)

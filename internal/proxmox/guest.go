@@ -2,6 +2,7 @@ package proxmox
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -64,6 +65,27 @@ func (a *Adapter) ExecStatus(ctx context.Context, ref VMRef, pid int) (ExecResul
 		return ExecResult{}, fmt.Errorf("proxmox: decode exec-status: %w", err)
 	}
 	return ExecResult{Exited: raw.Exited != 0, ExitCode: raw.ExitCode, Stdout: raw.OutData, Stderr: raw.ErrData}, nil
+}
+
+// WriteGuestFile ghi content vào một file trong guest qua QGA — POST
+// /nodes/{node}/qemu/{vmid}/agent/file-write. Dùng cho Workload Adapter
+// (P0-08) đẩy artifact bytes vào guest KHÔNG cần guest có network egress
+// (guest chạy trên bridge cô lập, PGW/egress chưa triển khai — Phần II
+// mục 11.4: allowlisted operation "install_artifact", không phải shell
+// tuỳ ý). content được base64-encode phía client và gửi encode=0 để
+// QGA nhận nguyên văn — binary-safe, không phụ thuộc PVE tự encode text
+// param qua form-urlencoded (rủi ro với byte không phải UTF-8).
+func (a *Adapter) WriteGuestFile(ctx context.Context, ref VMRef, path string, content []byte) error {
+	params := url.Values{}
+	params.Set("file", path)
+	params.Set("content", base64.StdEncoding.EncodeToString(content))
+	params.Set("encode", "0")
+	p := fmt.Sprintf("/nodes/%s/qemu/%d/agent/file-write", ref.Node, ref.VMID)
+	_, err := a.client.do(ctx, "POST", p, params)
+	if err != nil {
+		return fmt.Errorf("proxmox: write guest file %s: %w", path, err)
+	}
+	return nil
 }
 
 // WaitExec chạy Exec rồi poll ExecStatus tới khi tiến trình kết thúc
