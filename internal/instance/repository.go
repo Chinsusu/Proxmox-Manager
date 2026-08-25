@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/Chinsusu/vm-factory/internal/domain"
 	"github.com/Chinsusu/vm-factory/internal/storage"
@@ -142,6 +143,67 @@ func (r *Repository) Retire(ctx context.Context, execer storage.Execer, id strin
 		return domain.ErrNotFound
 	}
 	return nil
+}
+
+// List trả instance mới nhất trước (created_at DESC, id DESC làm
+// tie-break), keyset pagination — afterCreatedAt/afterID rỗng nghĩa là
+// "từ đầu". Trả tối đa limit+1 bản ghi để caller (tầng HTTP) tự xác
+// định có trang kế tiếp hay không mà không cần COUNT(*) riêng.
+func (r *Repository) List(ctx context.Context, afterCreatedAt time.Time, afterID string, limit int) ([]domain.VMInstance, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT `+instanceColumns+` FROM vm_instances
+		WHERE ($1::timestamptz IS NULL OR (created_at, id) < ($1::timestamptz, $2::uuid))
+		ORDER BY created_at DESC, id DESC
+		LIMIT $3
+	`, nullableTime(afterCreatedAt), nullableString(afterID), limit)
+	if err != nil {
+		return nil, fmt.Errorf("instance: list: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var instances []domain.VMInstance
+	for rows.Next() {
+		inst, err := scanInstance(rows)
+		if err != nil {
+			return nil, err
+		}
+		instances = append(instances, *inst)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("instance: iterate list: %w", err)
+	}
+	return instances, nil
+}
+
+// FindCurrentJobID trả job gần nhất (created_at mới nhất) của một
+// instance — dùng cho Instance.current_job_id ở API layer (P0-09).
+// Trả domain.ErrNotFound nếu instance chưa từng có job nào.
+func (r *Repository) FindCurrentJobID(ctx context.Context, instanceID string) (string, error) {
+	var jobID string
+	err := r.db.QueryRowContext(ctx, `
+		SELECT id FROM provisioning_jobs WHERE instance_id = $1 ORDER BY created_at DESC LIMIT 1
+	`, instanceID).Scan(&jobID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", domain.ErrNotFound
+		}
+		return "", fmt.Errorf("instance: find current job id: %w", err)
+	}
+	return jobID, nil
+}
+
+func nullableTime(t time.Time) any {
+	if t.IsZero() {
+		return nil
+	}
+	return t
+}
+
+func nullableString(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 const instanceColumns = `id, logical_name, hostname, state, generation, template_id,

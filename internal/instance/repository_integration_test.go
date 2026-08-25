@@ -203,3 +203,100 @@ func TestRepository_Retire(t *testing.T) {
 		t.Fatalf("GetByLogicalName() after retire error = %v, want domain.ErrNotFound", err)
 	}
 }
+
+// TestRepository_List_OrderAndPagination khong assert so luong tuyet
+// doi (bang vm_instances dung chung giua nhieu test/package tren cung
+// Postgres CI - bai hoc tu P0-03) - chi loc ket qua ve 3 instance minh
+// tao, xac nhan thu tu (moi nhat truoc) va keyset pagination tiep tuc
+// dung tu cursor.
+func TestRepository_List_OrderAndPagination(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	templateID := seedTemplate(ctx, t, db)
+	repo := NewRepository(db)
+
+	var created []*domain.VMInstance
+	for i := 0; i < 3; i++ {
+		inst, err := repo.Create(ctx, db, domain.VMInstance{
+			LogicalName: uniqueName(t, "logical"), Hostname: uniqueName(t, "host"), TemplateID: templateID,
+		})
+		if err != nil {
+			t.Fatalf("Create() #%d error: %v", i, err)
+		}
+		created = append(created, inst)
+		// dam bao created_at tang don dieu ngay ca khi do phan giai
+		// dong ho khong du de tach hai lan INSERT lien tiep.
+		time.Sleep(5 * time.Millisecond)
+	}
+	knownIDs := map[string]int{created[0].ID: 0, created[1].ID: 1, created[2].ID: 2}
+
+	filterKnown := func(items []domain.VMInstance) []domain.VMInstance {
+		var out []domain.VMInstance
+		for _, it := range items {
+			if _, ok := knownIDs[it.ID]; ok {
+				out = append(out, it)
+			}
+		}
+		return out
+	}
+
+	all, err := repo.List(ctx, time.Time{}, "", 1000)
+	if err != nil {
+		t.Fatalf("List() error: %v", err)
+	}
+	mine := filterKnown(all)
+	if len(mine) != 3 {
+		t.Fatalf("filtered list = %d instances, want 3 (co the co instance tao ngoai test bi loc sai)", len(mine))
+	}
+	if mine[0].ID != created[2].ID || mine[1].ID != created[1].ID || mine[2].ID != created[0].ID {
+		t.Fatalf("thu tu List() = [%s,%s,%s], want moi nhat truoc [%s,%s,%s]",
+			mine[0].ID, mine[1].ID, mine[2].ID, created[2].ID, created[1].ID, created[0].ID)
+	}
+
+	// Keyset pagination: dung item moi nhat (mine[0] = created[2]) lam
+	// cursor, List() tiep theo phai bo qua no va tra dung 2 item con
+	// lai theo thu tu (created[1] roi created[0]).
+	cursorAfter := mine[0]
+	next, err := repo.List(ctx, cursorAfter.CreatedAt, cursorAfter.ID, 1000)
+	if err != nil {
+		t.Fatalf("List() after cursor error: %v", err)
+	}
+	nextMine := filterKnown(next)
+	if len(nextMine) != 2 || nextMine[0].ID != created[1].ID || nextMine[1].ID != created[0].ID {
+		t.Fatalf("List() sau cursor = %+v, want [%s,%s]", nextMine, created[1].ID, created[0].ID)
+	}
+}
+
+func TestRepository_FindCurrentJobID(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	templateID := seedTemplate(ctx, t, db)
+	repo := NewRepository(db)
+
+	created, err := repo.Create(ctx, db, domain.VMInstance{
+		LogicalName: uniqueName(t, "logical"), Hostname: uniqueName(t, "host"), TemplateID: templateID,
+	})
+	if err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+
+	if _, err := repo.FindCurrentJobID(ctx, created.ID); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("FindCurrentJobID() chua co job, error = %v, want domain.ErrNotFound", err)
+	}
+
+	var jobID string
+	if err := db.QueryRowContext(ctx, `
+		INSERT INTO provisioning_jobs (instance_id, operation, state, checkpoint) VALUES ($1, 'PROVISION', 'QUEUED', 'REQUESTED') RETURNING id
+	`, created.ID).Scan(&jobID); err != nil {
+		t.Fatalf("seed job: %v", err)
+	}
+	t.Cleanup(func() { _, _ = db.ExecContext(ctx, `DELETE FROM provisioning_jobs WHERE id = $1`, jobID) })
+
+	got, err := repo.FindCurrentJobID(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("FindCurrentJobID() error: %v", err)
+	}
+	if got != jobID {
+		t.Errorf("FindCurrentJobID() = %s, want %s", got, jobID)
+	}
+}

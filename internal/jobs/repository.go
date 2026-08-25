@@ -165,6 +165,35 @@ func (r *Repository) Get(ctx context.Context, jobID string) (*domain.Provisionin
 	return scanJob(r.db.QueryRowContext(ctx, selectJobByID, jobID))
 }
 
+// Requeue đưa một job FAILED/RETRY_WAIT về QUEUED ngay (bỏ qua backoff
+// timer còn lại), xoá error/lease cũ — dùng bởi API layer (P0-09) khi
+// operator gọi retry thủ công. Nhận storage.QueryRower để tham gia
+// transaction của caller (RunIdempotent), tránh mất atomicity với
+// idempotency record — cùng lý do đã sửa cho ipam.SegmentRepository.Create
+// và template.Repository.Create. Trả domain.ErrNotFound nếu job không
+// tồn tại, domain.ErrInvalidTransition nếu job tồn tại nhưng không ở
+// state cho phép retry (QUEUED/RUNNING/SUCCEEDED/CANCELLED).
+func (r *Repository) Requeue(ctx context.Context, q storage.QueryRower, jobID string) (*domain.ProvisioningJob, error) {
+	job, err := scanJob(q.QueryRowContext(ctx, `
+		UPDATE provisioning_jobs
+		SET state = 'QUEUED', next_attempt_at = now(), error_code = NULL, error_message = NULL,
+		    lease_owner = NULL, lease_expires_at = NULL
+		WHERE id = $1 AND state IN ('FAILED', 'RETRY_WAIT')
+		RETURNING `+jobColumns, jobID))
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			// UPDATE khong khop co the vi job khong ton tai HOAC ton tai
+			// nhung sai state - phan biet ro de tra 404 vs 409 dung o
+			// tang API thay vi luon bao "not found".
+			if _, getErr := r.Get(ctx, jobID); getErr == nil {
+				return nil, domain.ErrInvalidTransition
+			}
+		}
+		return nil, err
+	}
+	return job, nil
+}
+
 // UpdateCheckpoint ghi vị trí lifecycle instance đang xử lý (checkpoint)
 // và dữ liệu tham chiếu external (checkpoint_data JSONB, Phần II mục
 // 6.2 — vd pve.vmid/clone_task, pgw.client_id). Nhận storage.Execer để

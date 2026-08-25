@@ -72,7 +72,7 @@ func TestRepository_CreateDefaultsToDraft(t *testing.T) {
 	repo := NewRepository(db)
 
 	family := uniqueName(t, "family")
-	created, err := repo.Create(ctx, newDraftTemplate(family, clusterID, 9001))
+	created, err := repo.Create(ctx, db, newDraftTemplate(family, clusterID, 9001))
 	if err != nil {
 		t.Fatalf("Create() error: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestRepository_PromoteValidPath(t *testing.T) {
 	repo := NewRepository(db)
 
 	family := uniqueName(t, "family")
-	created, err := repo.Create(ctx, newDraftTemplate(family, clusterID, 9002))
+	created, err := repo.Create(ctx, db, newDraftTemplate(family, clusterID, 9002))
 	if err != nil {
 		t.Fatalf("Create() error: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestRepository_PromoteInvalidTransitionRejected(t *testing.T) {
 	repo := NewRepository(db)
 
 	family := uniqueName(t, "family")
-	created, err := repo.Create(ctx, newDraftTemplate(family, clusterID, 9003))
+	created, err := repo.Create(ctx, db, newDraftTemplate(family, clusterID, 9003))
 	if err != nil {
 		t.Fatalf("Create() error: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestRepository_PromoteActive_DemotesPreviousActiveInSameFamily(t *testing.T
 
 	family := uniqueName(t, "family")
 
-	v1, err := repo.Create(ctx, newDraftTemplate(family, clusterID, 9004))
+	v1, err := repo.Create(ctx, db, newDraftTemplate(family, clusterID, 9004))
 	if err != nil {
 		t.Fatalf("Create(v1) error: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestRepository_PromoteActive_DemotesPreviousActiveInSameFamily(t *testing.T
 
 	v2 := newDraftTemplate(family, clusterID, 9005)
 	v2.Version = "2026.08.2"
-	created2, err := repo.Create(ctx, v2)
+	created2, err := repo.Create(ctx, db, v2)
 	if err != nil {
 		t.Fatalf("Create(v2) error: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestRepository_RollbackDeprecatedToActive(t *testing.T) {
 	repo := NewRepository(db)
 
 	family := uniqueName(t, "family")
-	v1, err := repo.Create(ctx, newDraftTemplate(family, clusterID, 9006))
+	v1, err := repo.Create(ctx, db, newDraftTemplate(family, clusterID, 9006))
 	if err != nil {
 		t.Fatalf("Create(v1) error: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestRepository_SetValidationStatus(t *testing.T) {
 	repo := NewRepository(db)
 
 	family := uniqueName(t, "family")
-	created, err := repo.Create(ctx, newDraftTemplate(family, clusterID, 9007))
+	created, err := repo.Create(ctx, db, newDraftTemplate(family, clusterID, 9007))
 	if err != nil {
 		t.Fatalf("Create() error: %v", err)
 	}
@@ -248,5 +248,51 @@ func TestRepository_SetValidationStatus(t *testing.T) {
 	}
 	if got.ValidationStatus != domain.ValidationPass {
 		t.Fatalf("ValidationStatus = %s, want PASS", got.ValidationStatus)
+	}
+}
+
+func TestRepository_List_FiltersByFamilyAndPaginates(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	clusterID := seedCluster(ctx, t, db)
+	repo := NewRepository(db)
+
+	family := uniqueName(t, "family")
+	var created []*domain.Template
+	for i := 0; i < 3; i++ {
+		tpl, err := repo.Create(ctx, db, newDraftTemplate(family, clusterID, 9010+i))
+		if err != nil {
+			t.Fatalf("Create() #%d error: %v", i, err)
+		}
+		created = append(created, tpl)
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	all, err := repo.List(ctx, family, time.Time{}, "", 1000)
+	if err != nil {
+		t.Fatalf("List() error: %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("len(all) = %d, want 3 (family filter phai co lap)", len(all))
+	}
+	if all[0].ID != created[2].ID || all[1].ID != created[1].ID || all[2].ID != created[0].ID {
+		t.Fatalf("thu tu = [%s,%s,%s], want moi nhat truoc [%s,%s,%s]",
+			all[0].ID, all[1].ID, all[2].ID, created[2].ID, created[1].ID, created[0].ID)
+	}
+
+	rest, err := repo.List(ctx, family, all[0].CreatedAt, all[0].ID, 1000)
+	if err != nil {
+		t.Fatalf("List() sau cursor error: %v", err)
+	}
+	if len(rest) != 2 || rest[0].ID != created[1].ID || rest[1].ID != created[0].ID {
+		t.Fatalf("List() sau cursor = %+v, want [%s,%s]", rest, created[1].ID, created[0].ID)
+	}
+
+	other, err := repo.List(ctx, uniqueName(t, "other-family"), time.Time{}, "", 1000)
+	if err != nil {
+		t.Fatalf("List() other family error: %v", err)
+	}
+	if len(other) != 0 {
+		t.Fatalf("List() family khong ton tai = %d items, want 0", len(other))
 	}
 }

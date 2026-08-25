@@ -95,3 +95,52 @@ func TestValidationRunRepository_LatestByType_NotFound(t *testing.T) {
 		t.Fatalf("LatestByType() error = %v, want domain.ErrNotFound", err)
 	}
 }
+
+func TestValidationRunRepository_LatestPerType(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	templateID := seedTemplateForIdentity(ctx, t, db)
+	inst := seedInstanceForIdentity(ctx, t, db, templateID)
+	repo := NewValidationRunRepository(db)
+
+	// identity: hai lan chay, chi lan moi nhat duoc tra ve.
+	olderIdentity, err := repo.Create(ctx, db, domain.ValidationRun{
+		InstanceID: inst.ID, Type: "identity", Result: domain.ValidationFail,
+		RulesetVersion: "v1", StartedAt: time.Now().Add(-time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("create older identity run: %v", err)
+	}
+	newerIdentity, err := repo.Create(ctx, db, domain.ValidationRun{
+		InstanceID: inst.ID, Type: "identity", Result: domain.ValidationPass,
+		RulesetVersion: "v1", StartedAt: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("create newer identity run: %v", err)
+	}
+	egressRun, err := repo.Create(ctx, db, domain.ValidationRun{
+		InstanceID: inst.ID, Type: "egress", Result: domain.ValidationWarn,
+		RulesetVersion: "v1", StartedAt: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("create egress run: %v", err)
+	}
+
+	runs, err := repo.LatestPerType(ctx, inst.ID)
+	if err != nil {
+		t.Fatalf("LatestPerType() error: %v", err)
+	}
+	if len(runs) != 2 {
+		t.Fatalf("len(runs) = %d, want 2 (identity + egress)", len(runs))
+	}
+	byType := map[string]domain.ValidationRun{}
+	for _, r := range runs {
+		byType[r.Type] = r
+	}
+	if byType["identity"].ID != newerIdentity.ID {
+		t.Errorf("identity run = %s, want newer run %s (not older %s)", byType["identity"].ID, newerIdentity.ID, olderIdentity.ID)
+	}
+	if byType["egress"].ID != egressRun.ID {
+		t.Errorf("egress run = %s, want %s", byType["egress"].ID, egressRun.ID)
+	}
+}

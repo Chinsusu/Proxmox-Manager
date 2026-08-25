@@ -18,7 +18,7 @@ func TestSegmentRepository_CreateAndGet(t *testing.T) {
 		_, _ = db.ExecContext(context.Background(), `DELETE FROM network_segments WHERE name = $1`, name)
 	})
 
-	created, err := repo.Create(ctx, domain.NetworkSegment{
+	created, err := repo.Create(ctx, db, domain.NetworkSegment{
 		Name:       name,
 		CIDR:       "10.55.0.0/24",
 		Gateway:    "10.55.0.1",
@@ -74,7 +74,7 @@ func TestSegmentRepository_List(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = db.ExecContext(context.Background(), `DELETE FROM network_segments WHERE name = $1`, name)
 	})
-	if _, err := repo.Create(ctx, domain.NetworkSegment{
+	if _, err := repo.Create(ctx, db, domain.NetworkSegment{
 		Name: name, CIDR: "10.56.0.0/24", Gateway: "10.56.0.1", Bridge: "vmbr1",
 	}); err != nil {
 		t.Fatalf("Create() error: %v", err)
@@ -92,5 +92,48 @@ func TestSegmentRepository_List(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("List() did not include created segment %q", name)
+	}
+}
+
+func TestSegmentRepository_Capacity(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	repo := NewSegmentRepository(db)
+
+	name := uniqueName(t, "segment-capacity")
+	seg, err := repo.Create(ctx, db, domain.NetworkSegment{
+		Name: name, CIDR: "10.57.0.0/24", Gateway: "10.57.0.1", Bridge: "vmbr1",
+	})
+	if err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(context.Background(), `DELETE FROM ip_allocations WHERE segment_id = $1`, seg.ID)
+		_, _ = db.ExecContext(context.Background(), `DELETE FROM network_segments WHERE id = $1`, seg.ID)
+	})
+
+	seedAllocations := []struct {
+		addr  string
+		state string
+	}{
+		{"10.57.0.10", "FREE"}, {"10.57.0.11", "FREE"}, {"10.57.0.12", "FREE"},
+		{"10.57.0.13", "RESERVED"},
+		{"10.57.0.14", "ASSIGNED"}, {"10.57.0.15", "ASSIGNED"},
+		{"10.57.0.16", "QUARANTINED"},
+	}
+	for _, a := range seedAllocations {
+		if _, err := db.ExecContext(ctx, `
+			INSERT INTO ip_allocations (segment_id, address, state) VALUES ($1, $2, $3)
+		`, seg.ID, a.addr, a.state); err != nil {
+			t.Fatalf("seed allocation %s: %v", a.addr, err)
+		}
+	}
+
+	capacity, err := repo.Capacity(ctx, seg.ID)
+	if err != nil {
+		t.Fatalf("Capacity() error: %v", err)
+	}
+	if capacity.Free != 3 || capacity.Reserved != 1 || capacity.Assigned != 2 || capacity.Quarantined != 1 || capacity.Total != 7 {
+		t.Fatalf("Capacity() = %+v, want Free=3 Reserved=1 Assigned=2 Quarantined=1 Total=7", capacity)
 	}
 }

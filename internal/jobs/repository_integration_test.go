@@ -370,3 +370,59 @@ func TestRepository_ReclaimExpiredLeases(t *testing.T) {
 		t.Fatalf("claimed job id = %s, want %s", reclaimed.ID, jobID)
 	}
 }
+
+func TestRepository_Requeue_FromFailedGoesToQueued(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	instanceID := seedInstance(ctx, t, db)
+	repo := NewRepository(db)
+
+	jobID := seedJob(ctx, t, db, instanceID)
+	claimed, err := repo.Claim(ctx, "worker-1", 10*time.Minute)
+	if err != nil {
+		t.Fatalf("Claim() error: %v", err)
+	}
+	if claimed.ID != jobID {
+		t.Fatalf("claimed job id = %s, want %s (job khac lan vao tu test song song?)", claimed.ID, jobID)
+	}
+	if err := repo.Fail(ctx, jobID, "worker-1", "TEST_ERROR", "simulated failure", nil); err != nil {
+		t.Fatalf("Fail() error: %v", err)
+	}
+
+	requeued, err := repo.Requeue(ctx, db, jobID)
+	if err != nil {
+		t.Fatalf("Requeue() error: %v", err)
+	}
+	if requeued.State != domain.JobQueued {
+		t.Errorf("State = %s, want QUEUED", requeued.State)
+	}
+	if requeued.ErrorCode != nil || requeued.ErrorMessage != nil {
+		t.Errorf("error fields not cleared: code=%v message=%v", requeued.ErrorCode, requeued.ErrorMessage)
+	}
+	if requeued.LeaseOwner != nil {
+		t.Errorf("LeaseOwner = %v, want nil", requeued.LeaseOwner)
+	}
+}
+
+func TestRepository_Requeue_WrongStateIsInvalidTransition(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	instanceID := seedInstance(ctx, t, db)
+	repo := NewRepository(db)
+
+	jobID := seedJob(ctx, t, db, instanceID) // state QUEUED, khong phai FAILED/RETRY_WAIT
+
+	if _, err := repo.Requeue(ctx, db, jobID); !errors.Is(err, domain.ErrInvalidTransition) {
+		t.Fatalf("Requeue() error = %v, want domain.ErrInvalidTransition", err)
+	}
+}
+
+func TestRepository_Requeue_NotFound(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	repo := NewRepository(db)
+
+	if _, err := repo.Requeue(ctx, db, "00000000-0000-0000-0000-000000000000"); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("Requeue() error = %v, want domain.ErrNotFound", err)
+	}
+}
