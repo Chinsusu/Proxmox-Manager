@@ -116,12 +116,22 @@ func TestRepository_Create(t *testing.T) {
 		t.Errorf("Operation = %s, want PROVISION", created.Operation)
 	}
 
-	claimed, err := repo.Claim(ctx, "worker-1", 10*time.Minute)
+	// KHONG goi Claim() o day de xac nhan claimable: Claim() lay job
+	// kha dung BAT KY trong toan bang (dung thiet ke, Phan II muc 6.1),
+	// khong dam bao lay dung job vua tao neu co job QUEUED khac dang
+	// ton tai tu package/test khac chay song song tren cung postgres
+	// (da tung gap that o P0-03, xem commit fix cua ipam reaper test).
+	// Verify claimable gian tiep qua Get(): state=QUEUED, next_attempt_at
+	// khong o tuong lai la du dieu kien de Claim() nhat duoc no.
+	got, err := repo.Get(ctx, created.ID)
 	if err != nil {
-		t.Fatalf("Claim() after Create() error: %v", err)
+		t.Fatalf("Get() error: %v", err)
 	}
-	if claimed.ID != created.ID {
-		t.Fatalf("claimed job id = %s, want %s", claimed.ID, created.ID)
+	if got.State != domain.JobQueued {
+		t.Fatalf("Get().State = %s, want QUEUED (dieu kien claimable)", got.State)
+	}
+	if got.NextAttemptAt.After(time.Now()) {
+		t.Fatalf("Get().NextAttemptAt = %v la tuong lai, job se khong claimable ngay", got.NextAttemptAt)
 	}
 }
 
