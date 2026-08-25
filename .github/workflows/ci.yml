@@ -23,7 +23,10 @@ jobs:
           if [ -n "$diff" ]; then echo "$diff"; echo "run: goimports -w ."; exit 1; fi
       - uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
+          # Pin tuong minh, khong dung "latest": action resolve "latest" ve
+          # dong v1.x (1.64.8) trong khi .golangci.yml o day la config v2.
+          # Ban local da verify sach voi v2.13.1 - giu dong bo hai ben.
+          version: v2.13.1
 
   test:
     needs: lint
