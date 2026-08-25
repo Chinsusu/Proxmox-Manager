@@ -33,6 +33,19 @@ provisioning:
   job_lease: 90s
   job_heartbeat: 20s
   max_attempts: 8
+  # defaults: profile mang/tai nguyen dung chung cho MOI instance vmf-worker
+  # tao (P0-05 chua doc network_segment_id/resources rieng tung instance tu
+  # desired_config JSONB - gap da biet). network_segment_id phai la UUID cua
+  # mot network_segments da dang ky.
+  defaults:
+    network_segment_id: ""
+    egress_policy_id: default
+    pool: vmfactory
+    bridge: vmbr1
+    ipconfig0: ip=dhcp
+    cores: 1
+    memory_mb: 512
+    reservation_ttl: 10m
 guest:
   qga_timeout: 5m
   ssh_fallback: true

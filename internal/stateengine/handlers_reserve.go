@@ -41,6 +41,10 @@ type reservingCheckpoint struct {
 // ReservingHandler thực hiện 4.2 RESERVING → CLONING (Phần V): reserve
 // IP + xác định VMID/node.
 //
+// Node đọc từ template.PVENode (mỗi template tự khai báo cluster/node
+// nguồn, P0-06) thay vì field tĩnh — worker chạy đúng cho MỌI template
+// ACTIVE thay vì chỉ đúng cho một template hardcode lúc wiring.
+//
 // KHÔNG dùng resource_locks pre-reservation cho VMID (gap đã biết) —
 // dựa vào PVE_VMID_CONFLICT từ chính Proxmox làm backstop, đúng như
 // Phần III mục 12 đã chấp nhận: "adapter retry với VMID mới trong
@@ -49,7 +53,7 @@ type reservingCheckpoint struct {
 type ReservingHandler struct {
 	IPAM           *ipam.Repository
 	Proxmox        *proxmox.Adapter
-	Node           string
+	Templates      *template.Repository
 	SegmentID      string
 	ReservationTTL time.Duration
 }
@@ -67,6 +71,11 @@ func (h *ReservingHandler) Execute(ctx context.Context, tctx *TransitionContext)
 		return TransitionResult{NextState: domain.InstanceCloning, CheckpointData: data}, nil
 	}
 
+	tpl, err := h.Templates.Get(ctx, tctx.Instance.TemplateID)
+	if err != nil {
+		return TransitionResult{}, fmt.Errorf("reserving: load template: %w", err)
+	}
+
 	alloc, err := h.IPAM.ReserveNextFree(ctx, h.SegmentID, tctx.Instance.ID, h.ReservationTTL)
 	if err != nil {
 		return TransitionResult{}, fmt.Errorf("reserving: reserve ip: %w", err)
@@ -77,7 +86,7 @@ func (h *ReservingHandler) Execute(ctx context.Context, tctx *TransitionContext)
 		return TransitionResult{}, fmt.Errorf("reserving: allocate vmid: %w", err)
 	}
 
-	cp := reservingCheckpoint{IPAllocationID: alloc.ID, VMID: vmid, Node: h.Node}
+	cp := reservingCheckpoint{IPAllocationID: alloc.ID, VMID: vmid, Node: tpl.PVENode}
 	data, _ := json.Marshal(cp)
 	return TransitionResult{NextState: domain.InstanceCloning, CheckpointData: data}, nil
 }
