@@ -1,4 +1,4 @@
-package stateengine
+package pgw
 
 import (
 	"context"
@@ -6,9 +6,9 @@ import (
 	"testing"
 )
 
-func TestNoopPGWAdapter_MarksEverythingSimulated(t *testing.T) {
+func TestNoopAdapter_MarksEverythingSimulated(t *testing.T) {
 	ctx := context.Background()
-	n := NewNoopPGWAdapter()
+	n := NewNoopAdapter()
 
 	client, err := n.CreateClient(ctx, ClientRequest{Name: "test-host"})
 	if err != nil || client.ID == "" {

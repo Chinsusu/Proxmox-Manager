@@ -92,3 +92,10 @@ type VMObservedState struct {
 
 // IsRunning báo hiệu VM đang chạy.
 func (s VMObservedState) IsRunning() bool { return s.Status == "running" }
+
+// VMConfig là một phần kết quả đọc GET /nodes/{node}/qemu/{vmid}/config
+// — hiện chỉ trích MAC net0 (P0 chỉ một NIC workload, Phần VIII mục 5
+// NET-001), dùng cho ID-005 MAC match.
+type VMConfig struct {
+	Net0MAC string
+}

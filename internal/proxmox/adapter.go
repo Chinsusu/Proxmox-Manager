@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -186,6 +187,46 @@ func (a *Adapter) GetVM(ctx context.Context, ref VMRef) (VMObservedState, error)
 		return VMObservedState{}, fmt.Errorf("proxmox: decode vm status: %w", err)
 	}
 	return VMObservedState{VMRef: ref, Name: raw.Name, Status: raw.Status, Locked: raw.Lock}, nil
+}
+
+// GetConfig gọi GET /nodes/{node}/qemu/{vmid}/config — dùng để đọc lại
+// MAC net0 mà Proxmox tự sinh (Configure ở Phần III mục 6 không truyền
+// MAC tường minh), phục vụ ID-005 MAC match (Phần VIII mục 4) ở P0-07.
+func (a *Adapter) GetConfig(ctx context.Context, ref VMRef) (VMConfig, error) {
+	path := fmt.Sprintf("/nodes/%s/qemu/%d/config", ref.Node, ref.VMID)
+	data, err := a.client.do(ctx, "GET", path, nil)
+	if err != nil {
+		return VMConfig{}, err
+	}
+	var raw struct {
+		Net0 string `json:"net0"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return VMConfig{}, fmt.Errorf("proxmox: decode vm config: %w", err)
+	}
+	return VMConfig{Net0MAC: parseNet0MAC(raw.Net0)}, nil
+}
+
+// parseNet0MAC trích MAC từ chuỗi net0 dạng
+// "<model>=<MAC>,bridge=...,firewall=..." (vd
+// "virtio=BC:24:11:AA:BB:CC,bridge=vmbr0,firewall=1") — format chuẩn
+// Proxmox trả về khi MAC được tự sinh (không truyền tường minh lúc
+// Configure). Trả rỗng nếu không parse được thay vì lỗi cứng — caller
+// tự quyết định coi đây là UNKNOWN.
+//
+// Chuẩn hoá về lowercase — verify thật trên cluster PVE 9.1.6 cho thấy
+// Proxmox trả MAC dạng UPPERCASE ("D8:FC:93:...") trong khi guest Linux
+// (`ip -j link show`, dùng bởi internal/guest facts collector) luôn báo
+// lowercase ("d8:fc:93:..."), gây sai lệch case nếu so sánh trực tiếp
+// (ID-005 MAC match, Phần VIII mục 4) — không phải giả định, phát hiện
+// khi chạy thật.
+func parseNet0MAC(net0 string) string {
+	firstField, _, _ := strings.Cut(net0, ",")
+	_, mac, ok := strings.Cut(firstField, "=")
+	if !ok {
+		return ""
+	}
+	return strings.ToLower(mac)
 }
 
 // GuestPing gọi POST /nodes/{node}/qemu/{vmid}/agent/ping — đồng bộ,

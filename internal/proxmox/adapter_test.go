@@ -55,6 +55,28 @@ func TestBuildNet0(t *testing.T) {
 	}
 }
 
+func TestParseNet0MAC(t *testing.T) {
+	cases := []struct {
+		name string
+		net0 string
+		want string
+	}{
+		{"virtio with firewall", "virtio=BC:24:11:AA:BB:CC,bridge=vmbr0,firewall=1", "bc:24:11:aa:bb:cc"},
+		{"virtio without firewall", "virtio=BC:24:11:AA:BB:CC,bridge=vmbr0", "bc:24:11:aa:bb:cc"},
+		{"e1000 model", "e1000=DE:AD:BE:EF:00:01,bridge=vmbr1", "de:ad:be:ef:00:01"},
+		{"already lowercase (verify thuc te tren PVE 9.1.6: Proxmox tra UPPERCASE)", "virtio=d8:fc:93:53:b9:b6,bridge=vmbr1", "d8:fc:93:53:b9:b6"},
+		{"empty", "", ""},
+		{"no equals sign", "garbage", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := parseNet0MAC(c.net0); got != c.want {
+				t.Errorf("parseNet0MAC(%q) = %q, want %q", c.net0, got, c.want)
+			}
+		})
+	}
+}
+
 func TestBoolParam(t *testing.T) {
 	if boolParam(true) != "1" {
 		t.Error("boolParam(true) should be \"1\"")

@@ -12,6 +12,7 @@ import (
 	"github.com/Chinsusu/vm-factory/internal/instance"
 	"github.com/Chinsusu/vm-factory/internal/ipam"
 	"github.com/Chinsusu/vm-factory/internal/jobs"
+	"github.com/Chinsusu/vm-factory/internal/pgw"
 	"github.com/Chinsusu/vm-factory/internal/proxmox"
 	"github.com/Chinsusu/vm-factory/internal/storage"
 )
@@ -25,7 +26,7 @@ import (
 // Rollback vốn dọn sạch resource để trả hệ thống về trạng thái sạch.
 type Quarantine struct {
 	Proxmox   *proxmox.Adapter
-	PGW       PGWAdapter
+	PGW       pgw.Adapter
 	IPAM      *ipam.Repository
 	Instances *instance.Repository
 	JobsRepo  *jobs.Repository
