@@ -103,7 +103,7 @@ func TestRepository_Claim_HappyPath(t *testing.T) {
 	jobID := seedJob(ctx, t, db, instanceID)
 
 	repo := NewRepository(db)
-	job, err := repo.Claim(ctx, "worker-1", 90*time.Second)
+	job, err := repo.Claim(ctx, "worker-1", 10*time.Minute)
 	if err != nil {
 		t.Fatalf("Claim() error: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestRepository_Claim_NoJobAvailable(t *testing.T) {
 		t.Fatalf("seed future job: %v", err)
 	}
 
-	_, err := repo.Claim(ctx, "worker-1", 90*time.Second)
+	_, err := repo.Claim(ctx, "worker-1", 10*time.Minute)
 	if !errors.Is(err, domain.ErrNotClaimable) {
 		t.Fatalf("Claim() error = %v, want domain.ErrNotClaimable", err)
 	}
@@ -173,7 +173,7 @@ func TestRepository_Claim_ConcurrentWorkers_NoDuplicateOwnership(t *testing.T) {
 		workerID := uniqueName(t, "worker") + "-" + strconv.Itoa(w)
 		go func(workerID string) {
 			defer wg.Done()
-			job, err := repo.Claim(ctx, workerID, 60*time.Second)
+			job, err := repo.Claim(ctx, workerID, 10*time.Minute)
 			if err != nil {
 				if errors.Is(err, domain.ErrNotClaimable) {
 					atomic.AddInt64(&errCount, 1)
@@ -210,14 +210,20 @@ func TestRepository_Heartbeat_WrongOwnerFails(t *testing.T) {
 	jobID := seedJob(ctx, t, db, instanceID)
 	repo := NewRepository(db)
 
-	if _, err := repo.Claim(ctx, "worker-owner", 90*time.Second); err != nil {
+	// Lease duration rong rai (khong phai 90s sat nut) de tranh flaky
+	// khi CI chay nhieu integration test song song tren cung postgres
+	// service duoi -race, co the lam cham thoi gian giua Claim va
+	// Heartbeat du de lease_expires_at cu bi vuot qua now().
+	const leaseDuration = 10 * time.Minute
+
+	if _, err := repo.Claim(ctx, "worker-owner", leaseDuration); err != nil {
 		t.Fatalf("Claim() error: %v", err)
 	}
 
-	if err := repo.Heartbeat(ctx, jobID, "worker-owner", 90*time.Second); err != nil {
+	if err := repo.Heartbeat(ctx, jobID, "worker-owner", leaseDuration); err != nil {
 		t.Fatalf("Heartbeat() by owner should succeed, got: %v", err)
 	}
-	if err := repo.Heartbeat(ctx, jobID, "worker-imposter", 90*time.Second); !errors.Is(err, domain.ErrLeaseLost) {
+	if err := repo.Heartbeat(ctx, jobID, "worker-imposter", leaseDuration); !errors.Is(err, domain.ErrLeaseLost) {
 		t.Fatalf("Heartbeat() by non-owner error = %v, want domain.ErrLeaseLost", err)
 	}
 }
@@ -230,7 +236,7 @@ func TestRepository_CompleteAndFail(t *testing.T) {
 	t.Run("complete releases lease", func(t *testing.T) {
 		instanceID := seedInstance(ctx, t, db)
 		jobID := seedJob(ctx, t, db, instanceID)
-		if _, err := repo.Claim(ctx, "worker-1", 90*time.Second); err != nil {
+		if _, err := repo.Claim(ctx, "worker-1", 10*time.Minute); err != nil {
 			t.Fatalf("Claim() error: %v", err)
 		}
 		if err := repo.Complete(ctx, jobID, "worker-1"); err != nil {
@@ -248,7 +254,7 @@ func TestRepository_CompleteAndFail(t *testing.T) {
 	t.Run("fail with retryAt transitions to RETRY_WAIT", func(t *testing.T) {
 		instanceID := seedInstance(ctx, t, db)
 		jobID := seedJob(ctx, t, db, instanceID)
-		if _, err := repo.Claim(ctx, "worker-1", 90*time.Second); err != nil {
+		if _, err := repo.Claim(ctx, "worker-1", 10*time.Minute); err != nil {
 			t.Fatalf("Claim() error: %v", err)
 		}
 		retryAt := time.Now().Add(30 * time.Second)
@@ -267,7 +273,7 @@ func TestRepository_CompleteAndFail(t *testing.T) {
 	t.Run("fail without retryAt transitions to FAILED", func(t *testing.T) {
 		instanceID := seedInstance(ctx, t, db)
 		jobID := seedJob(ctx, t, db, instanceID)
-		if _, err := repo.Claim(ctx, "worker-1", 90*time.Second); err != nil {
+		if _, err := repo.Claim(ctx, "worker-1", 10*time.Minute); err != nil {
 			t.Fatalf("Claim() error: %v", err)
 		}
 		if err := repo.Fail(ctx, jobID, "worker-1", "PVE_VMID_CONFLICT", "vmid taken", nil); err != nil {
@@ -290,7 +296,7 @@ func TestRepository_ReclaimExpiredLeases(t *testing.T) {
 	jobID := seedJob(ctx, t, db, instanceID)
 	repo := NewRepository(db)
 
-	if _, err := repo.Claim(ctx, "worker-crashed", 90*time.Second); err != nil {
+	if _, err := repo.Claim(ctx, "worker-crashed", 10*time.Minute); err != nil {
 		t.Fatalf("Claim() error: %v", err)
 	}
 	// gia lap lease da het han (worker chet giua chung, khong Complete/Fail kip).
@@ -317,7 +323,7 @@ func TestRepository_ReclaimExpiredLeases(t *testing.T) {
 	}
 
 	// job phai claim lai duoc boi worker khac sau khi reclaim.
-	reclaimed, err := repo.Claim(ctx, "worker-2", 90*time.Second)
+	reclaimed, err := repo.Claim(ctx, "worker-2", 10*time.Minute)
 	if err != nil {
 		t.Fatalf("Claim() after reclaim error: %v", err)
 	}

@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // NetworkSegment là một dải mạng IPv4 đăng ký để cấp phát — bản ghi
 // network_segments, theo Phần VI mục 2.3.
@@ -13,7 +16,12 @@ type NetworkSegment struct {
 	DNSServers         []string
 	IPv6Policy         string
 	AllocationStrategy string
-	State              string
+	// Exclusions liệt kê địa chỉ/dải bị loại khỏi cấp phát (network
+	// address, broadcast, gateway, reserved theo Phần VI mục 3.1).
+	Exclusions json.RawMessage
+	State      string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // IPAllocation là một địa chỉ IPv4 trong vòng đời IPAM — bản ghi
