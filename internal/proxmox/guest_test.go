@@ -2,6 +2,7 @@ package proxmox
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -88,5 +89,40 @@ func TestExec_EncodesCommandArrayAsRepeatedFormKey(t *testing.T) {
 	}
 	if capturedBody != "echo|hello" {
 		t.Errorf("server received command = %q, want \"echo|hello\" (command array phai encode thanh nhieu key command= lap lai)", capturedBody)
+	}
+}
+
+func TestWriteGuestFile_EncodesContentAsBase64WithEncodeZero(t *testing.T) {
+	var capturedFile, capturedContent, capturedEncode string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		capturedFile = r.Form.Get("file")
+		capturedContent = r.Form.Get("content")
+		capturedEncode = r.Form.Get("encode")
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": nil})
+	}))
+	defer srv.Close()
+
+	client := NewClient(ClientConfig{BaseURL: srv.URL, TokenID: "test@pve!test", Secret: "secret", RequestTimeout: 5 * time.Second})
+	adapter := NewAdapter(client)
+
+	content := []byte("hello\x00binary-safe\xffcontent")
+	err := adapter.WriteGuestFile(context.Background(), VMRef{Node: "n1", VMID: 100}, "/tmp/vmf-test.bin", content)
+	if err != nil {
+		t.Fatalf("WriteGuestFile() error: %v", err)
+	}
+	if capturedFile != "/tmp/vmf-test.bin" {
+		t.Errorf("file param = %q", capturedFile)
+	}
+	if capturedEncode != "0" {
+		t.Errorf("encode param = %q, want \"0\" (content da base64 san, khong can PVE encode lai)", capturedEncode)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(capturedContent)
+	if err != nil {
+		t.Fatalf("content param khong phai base64 hop le: %v", err)
+	}
+	if string(decoded) != string(content) {
+		t.Errorf("decoded content = %q, want %q", decoded, content)
 	}
 }
