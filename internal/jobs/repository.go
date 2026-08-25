@@ -24,6 +24,18 @@ func NewRepository(db *storage.DB) *Repository {
 	return &Repository{db: db}
 }
 
+// Create tạo một job mới ở state QUEUED, checkpoint là state hiện tại
+// của instance (thường REQUESTED khi job vừa tạo cho instance mới).
+// Nhận storage.QueryRower để caller ghép cùng transaction tạo instance
+// (Phần II mục 6: "instance + job + reservations created cùng transaction").
+func (r *Repository) Create(ctx context.Context, q storage.QueryRower, instanceID string, operation domain.JobOperation, initialCheckpoint domain.InstanceState) (*domain.ProvisioningJob, error) {
+	row := q.QueryRowContext(ctx, `
+		INSERT INTO provisioning_jobs (instance_id, operation, state, checkpoint)
+		VALUES ($1, $2, 'QUEUED', $3)
+		RETURNING `+jobColumns, instanceID, operation, initialCheckpoint)
+	return scanJob(row)
+}
+
 // Claim lease một job đủ điều kiện (state QUEUED/RETRY_WAIT, next_attempt_at
 // <= now), dùng FOR UPDATE SKIP LOCKED để nhiều worker cạnh tranh an toàn
 // không lock chờ nhau — đúng nguyên văn truy vấn ở Phần II mục 6.1. Trả
@@ -153,14 +165,37 @@ func (r *Repository) Get(ctx context.Context, jobID string) (*domain.Provisionin
 	return scanJob(r.db.QueryRowContext(ctx, selectJobByID, jobID))
 }
 
-const selectJobByID = `
-	SELECT id, instance_id, operation, state, checkpoint, checkpoint_data,
-	       priority, attempt, max_attempts, next_attempt_at,
-	       lease_owner, lease_expires_at, error_code, error_message,
-	       created_at, started_at, finished_at
-	FROM provisioning_jobs
-	WHERE id = $1
-`
+// UpdateCheckpoint ghi vị trí lifecycle instance đang xử lý (checkpoint)
+// và dữ liệu tham chiếu external (checkpoint_data JSONB, Phần II mục
+// 6.2 — vd pve.vmid/clone_task, pgw.client_id). Nhận storage.Execer để
+// state engine ghép cùng transaction với instance.UpdateState và audit
+// event (Phần V mục 1: mọi transition có checkpoint + audit event).
+func (r *Repository) UpdateCheckpoint(ctx context.Context, execer storage.Execer, jobID string, checkpoint domain.InstanceState, checkpointData json.RawMessage) error {
+	if len(checkpointData) == 0 {
+		checkpointData = json.RawMessage("{}")
+	}
+	res, err := execer.ExecContext(ctx, `
+		UPDATE provisioning_jobs SET checkpoint = $1, checkpoint_data = $2 WHERE id = $3
+	`, checkpoint, checkpointData, jobID)
+	if err != nil {
+		return fmt.Errorf("jobs: update checkpoint: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("jobs: rows affected: %w", err)
+	}
+	if n == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+const jobColumns = `id, instance_id, operation, state, checkpoint, checkpoint_data,
+	priority, attempt, max_attempts, next_attempt_at,
+	lease_owner, lease_expires_at, error_code, error_message,
+	created_at, started_at, finished_at`
+
+const selectJobByID = `SELECT ` + jobColumns + ` FROM provisioning_jobs WHERE id = $1`
 
 type rowScanner interface {
 	Scan(dest ...any) error
