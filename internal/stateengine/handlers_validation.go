@@ -10,6 +10,7 @@ import (
 	"github.com/Chinsusu/vm-factory/internal/domain"
 	"github.com/Chinsusu/vm-factory/internal/guest"
 	"github.com/Chinsusu/vm-factory/internal/ipam"
+	"github.com/Chinsusu/vm-factory/internal/observability"
 	"github.com/Chinsusu/vm-factory/internal/pgw"
 	"github.com/Chinsusu/vm-factory/internal/proxmox"
 	"github.com/Chinsusu/vm-factory/internal/storage"
@@ -42,6 +43,9 @@ type ValidatingIdentityHandler struct {
 	Runs     *storage.ValidationRunRepository
 	IPAM     *ipam.Repository
 	Segments *ipam.SegmentRepository
+	// Metrics, khi khác nil, ghi vmf_validation_total/vmf_identity_duplicates_total
+	// (tài liệu 09 mục 3.3) — optional, nil an toàn.
+	Metrics *observability.Metrics
 
 	FactsTimeout              time.Duration
 	BlockRetiredDuplicate     bool
@@ -118,6 +122,12 @@ func (h *ValidatingIdentityHandler) Execute(ctx context.Context, tctx *Transitio
 	if err != nil {
 		return TransitionResult{}, fmt.Errorf("validating_identity: build evidence: %w", err)
 	}
+	for _, c := range checks {
+		h.Metrics.ObserveValidation("identity", c.Result, c.RuleID)
+	}
+	if len(machineDup) > 0 || len(sshDup) > 0 {
+		h.Metrics.IncIdentityDuplicate()
+	}
 
 	safeFacts, err := json.Marshal(redactFacts(facts))
 	if err != nil {
@@ -188,9 +198,10 @@ func (h *ValidatingIdentityHandler) Execute(ctx context.Context, tctx *Transitio
 // khi P0-08 đăng ký handler cho state đó — gap đã biết, chấp nhận được
 // vì P0-08 là epic kế tiếp theo lộ trình "làm lần lượt".
 type ValidatingEgressHandler struct {
-	PGW  pgw.Adapter
-	IPAM *ipam.Repository
-	Runs *storage.ValidationRunRepository
+	PGW     pgw.Adapter
+	IPAM    *ipam.Repository
+	Runs    *storage.ValidationRunRepository
+	Metrics *observability.Metrics
 
 	DenyIPv6    bool
 	ProofMaxAge time.Duration
@@ -226,6 +237,9 @@ func (h *ValidatingEgressHandler) Execute(ctx context.Context, tctx *TransitionC
 	evidenceJSON, result, err := validation.BuildEvidence(tctx.Instance.ID, checks)
 	if err != nil {
 		return TransitionResult{}, fmt.Errorf("validating_egress: build evidence: %w", err)
+	}
+	for _, c := range checks {
+		h.Metrics.ObserveValidation("egress", c.Result, c.RuleID)
 	}
 
 	nextState := domain.InstanceApplyingWorkload

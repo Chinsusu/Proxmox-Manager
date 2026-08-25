@@ -1,0 +1,88 @@
+{
+  "title": "VM Factory - Executive/Fleet",
+  "uid": "vmf-fleet-executive",
+  "schemaVersion": 39,
+  "timezone": "browser",
+  "time": { "from": "now-24h", "to": "now" },
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      { "name": "DS_PROMETHEUS", "type": "datasource", "query": "prometheus", "current": {} }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Total instances by state",
+      "type": "piechart",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": { "x": 0, "y": 0, "w": 8, "h": 8 },
+      "targets": [
+        { "expr": "sum by (state) (vmf_instances)", "legendFormat": "{{state}}" }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Provisioning success rate (1h) - SLO",
+      "type": "stat",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": { "x": 8, "y": 0, "w": 8, "h": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.9 },
+              { "color": "green", "value": 0.97 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(vmf_jobs_total{operation=\"PROVISION\",result=\"success\"}[1h])) / sum(rate(vmf_jobs_total{operation=\"PROVISION\"}[1h]))",
+          "legendFormat": "success rate"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "IP pool capacity by segment",
+      "type": "bargauge",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 8 },
+      "targets": [
+        { "expr": "sum by (segment, state) (vmf_ip_pool_addresses)", "legendFormat": "{{segment}}/{{state}}" }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Top failure codes (24h)",
+      "type": "table",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": { "x": 0, "y": 8, "w": 8, "h": 8 },
+      "targets": [
+        { "expr": "topk(10, sum by (error_code) (increase(vmf_job_retries_total[24h])))", "format": "table", "instant": true }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Template version distribution",
+      "type": "piechart",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": { "x": 8, "y": 8, "w": 8, "h": 8 },
+      "targets": [
+        { "expr": "sum by (template_version) (vmf_instances)", "legendFormat": "{{template_version}}" }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Active alerts",
+      "type": "alertlist",
+      "gridPos": { "x": 16, "y": 8, "w": 8, "h": 8 },
+      "options": { "showOptions": "current", "stateFilter": { "firing": true, "pending": true } }
+    }
+  ]
+}

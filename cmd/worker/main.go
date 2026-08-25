@@ -28,6 +28,7 @@ import (
 	"log/slog"
 	"math"
 	"math/rand"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -90,6 +91,8 @@ func main() {
 	}
 	defer func() { _ = db.Close() }()
 
+	metrics := observability.NewMetrics()
+
 	cluster := cfg.Proxmox.Clusters[0]
 	tokenSecret, err := loadSecretFile(cluster.TokenSecretFile)
 	if err != nil {
@@ -102,6 +105,7 @@ func main() {
 		Secret:             tokenSecret,
 		InsecureSkipVerify: cluster.InsecureSkipVerify,
 		RequestTimeout:     cluster.RequestTimeout.AsTimeDuration(),
+		Metrics:            metrics,
 	}))
 
 	hmacKey, err := validation.LoadHMACKeyFromFile(cfg.Identity.HMACKeyFile)
@@ -110,12 +114,33 @@ func main() {
 		os.Exit(1)
 	}
 
-	engine, rollback := wireEngine(db, cfg, proxmoxAdapter, hmacKey)
+	engine, rollback := wireEngine(db, cfg, proxmoxAdapter, hmacKey, metrics)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	var wg sync.WaitGroup
+
+	if cfg.Observability.MetricsListen != "" {
+		metricsSrv := &http.Server{Addr: cfg.Observability.MetricsListen, Handler: metrics.Handler(), ReadHeaderTimeout: 10 * time.Second}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			logger.Info("metrics listening", "addr", cfg.Observability.MetricsListen)
+			if err := metricsSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				logger.Error("metrics server error", "error", err)
+			}
+		}()
+		go func() {
+			<-ctx.Done()
+			// context.Background() co y - ctx ngoai da Done() tai day, dung
+			// no lam parent se huy shutdownCtx ngay lap tuc, khong con thoi
+			// gian de Shutdown() flush ket noi dang mo.
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = metricsSrv.Shutdown(shutdownCtx) //nolint:contextcheck // ctx ngoai da huy, can context doc lap de Shutdown() co thoi gian
+		}()
+	}
 
 	maintenanceInterval := cfg.Provisioning.JobLease.AsTimeDuration() / 2
 	if maintenanceInterval <= 0 {
@@ -124,7 +149,7 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		runMaintenanceLoop(ctx, logger, jobs.NewRepository(db), ipam.NewReaper(db, audit.NewWriter()), maintenanceInterval)
+		runMaintenanceLoop(ctx, logger, db, jobs.NewRepository(db), ipam.NewReaper(db, audit.NewWriter()), metrics, maintenanceInterval)
 	}()
 
 	concurrency := cfg.Provisioning.WorkerConcurrency
@@ -143,6 +168,7 @@ func main() {
 			rollback:  rollback,
 			cfg:       cfg.Provisioning,
 			logger:    logger,
+			metrics:   metrics,
 		}
 		wg.Add(1)
 		go func() {
@@ -161,7 +187,7 @@ func main() {
 // wireEngine đăng ký toàn bộ transition handler cho REQUESTED→READY
 // (Phần V) dùng adapter/repository thật, cộng Rollback dùng khi job
 // thất bại hẳn (het max_attempts).
-func wireEngine(db *storage.DB, cfg *config.Config, proxmoxAdapter *proxmox.Adapter, hmacKey []byte) (*stateengine.Engine, *stateengine.Rollback) {
+func wireEngine(db *storage.DB, cfg *config.Config, proxmoxAdapter *proxmox.Adapter, hmacKey []byte, metrics *observability.Metrics) (*stateengine.Engine, *stateengine.Rollback) {
 	instancesRepo := instance.NewRepository(db)
 	jobsRepo := jobs.NewRepository(db)
 	templatesRepo := template.NewRepository(db)
@@ -192,17 +218,17 @@ func wireEngine(db *storage.DB, cfg *config.Config, proxmoxAdapter *proxmox.Adap
 	engine.Register(domain.InstanceBooting, &stateengine.BootingHandler{Proxmox: proxmoxAdapter})
 	engine.Register(domain.InstanceWaitingGuest, &stateengine.ValidatingIdentityHandler{
 		PGW: pgwAdapter, Facts: factsCollector, Digester: digester,
-		Identity: identityRepo, Runs: runsRepo, IPAM: ipamRepo, Segments: segmentsRepo,
+		Identity: identityRepo, Runs: runsRepo, IPAM: ipamRepo, Segments: segmentsRepo, Metrics: metrics,
 		FactsTimeout:              cfg.Guest.QGATimeout.AsTimeDuration(),
 		BlockRetiredDuplicate:     cfg.Identity.DuplicatePolicy.RetiredHistory == "block",
 		RequireSingleNIC:          cfg.Network.RequireSingleNIC,
 		RequireSingleDefaultRoute: cfg.Network.RequireSingleDefaultRoute,
 	})
 	engine.Register(domain.InstanceValidatingEgress, &stateengine.ValidatingEgressHandler{
-		PGW: pgwAdapter, IPAM: ipamRepo, Runs: runsRepo, DenyIPv6: cfg.Network.IPv6Policy == "deny",
+		PGW: pgwAdapter, IPAM: ipamRepo, Runs: runsRepo, Metrics: metrics, DenyIPv6: cfg.Network.IPv6Policy == "deny",
 	})
 	engine.Register(domain.InstanceApplyingWorkload, &stateengine.ApplyingWorkloadHandler{
-		Proxmox: proxmoxAdapter, PGW: pgwAdapter, IPAM: ipamRepo, Runs: runsRepo,
+		Proxmox: proxmoxAdapter, PGW: pgwAdapter, IPAM: ipamRepo, Runs: runsRepo, Metrics: metrics,
 		DefaultAdapter: "noop",
 		Adapters: map[string]stateengine.WorkloadAdapterFactory{
 			"noop":           func(_ *proxmox.Adapter) workload.Adapter { return workload.NewNoopAdapter() },
@@ -229,6 +255,7 @@ type worker struct {
 	rollback  *stateengine.Rollback
 	cfg       config.ProvisioningConfig
 	logger    *slog.Logger
+	metrics   *observability.Metrics
 }
 
 func (w *worker) run(ctx context.Context) {
@@ -274,6 +301,7 @@ func (w *worker) processJob(ctx context.Context, job *domain.ProvisioningJob) {
 		if err := w.jobsRepo.Fail(ctx, job.ID, w.id, "UNSUPPORTED_OPERATION", msg, nil); err != nil {
 			log.Error("mark unsupported-operation job failed", "error", err)
 		}
+		w.metrics.ObserveJobFinished(string(job.Operation), "unsupported", time.Since(job.CreatedAt))
 		return
 	}
 
@@ -290,9 +318,11 @@ func (w *worker) processJob(ctx context.Context, job *domain.ProvisioningJob) {
 				return
 			}
 			log.Info("job completed", "final_state", inst.State)
+			w.metrics.ObserveJobFinished(string(job.Operation), "success", time.Since(job.CreatedAt))
 			return
 		}
 
+		stepStart := time.Now()
 		newState, err := w.engine.Step(ctx, job)
 		if err != nil {
 			if errors.Is(err, domain.ErrInvalidTransition) {
@@ -304,6 +334,7 @@ func (w *worker) processJob(ctx context.Context, job *domain.ProvisioningJob) {
 			w.failOrRetry(ctx, job, "STEP_FAILED", err.Error())
 			return
 		}
+		w.metrics.ObserveStateTransition(string(inst.State), time.Since(stepStart))
 		log.Info("step advanced", "to", newState)
 
 		refreshed, err := w.jobsRepo.Get(ctx, job.ID)
@@ -327,6 +358,7 @@ func (w *worker) failOrRetry(ctx context.Context, job *domain.ProvisioningJob, c
 		if err := w.jobsRepo.Fail(ctx, job.ID, w.id, code, msg, &retryAt); err != nil {
 			w.logger.Error("mark job retry-wait failed", "job_id", job.ID, "error", err)
 		}
+		w.metrics.IncJobRetry(code)
 		return
 	}
 
@@ -349,10 +381,14 @@ func (w *worker) terminalFail(ctx context.Context, job *domain.ProvisioningJob, 
 		w.logger.Error("mark job terminal fail failed", "job_id", job.ID, "error", err)
 		return
 	}
+	w.metrics.ObserveJobFinished(string(job.Operation), "failed", time.Since(job.CreatedAt))
 	finalState, err := w.rollback.Execute(ctx, inst, job, msg)
 	if err != nil {
 		w.logger.Error("rollback failed", "job_id", job.ID, "instance_id", inst.ID, "error", err)
 		return
+	}
+	if finalState == domain.InstanceQuarantined {
+		w.metrics.IncRollbackIncomplete()
 	}
 	w.logger.Info("rollback complete", "job_id", job.ID, "instance_id", inst.ID, "final_state", finalState)
 }
@@ -401,7 +437,7 @@ func backoffDelay(attempt int) time.Duration {
 	return d + jitter
 }
 
-func runMaintenanceLoop(ctx context.Context, logger *slog.Logger, jobsRepo *jobs.Repository, reaper *ipam.Reaper, interval time.Duration) {
+func runMaintenanceLoop(ctx context.Context, logger *slog.Logger, db *storage.DB, jobsRepo *jobs.Repository, reaper *ipam.Reaper, metrics *observability.Metrics, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -413,13 +449,103 @@ func runMaintenanceLoop(ctx context.Context, logger *slog.Logger, jobsRepo *jobs
 				logger.Error("reclaim expired job leases failed", "error", err)
 			} else if n > 0 {
 				logger.Warn("reclaimed expired job leases", "count", n)
+				metrics.AddJobLeaseExpired(n)
 			}
 			if n, err := reaper.ReleaseExpiredReservations(ctx); err != nil {
 				logger.Error("release expired ip reservations failed", "error", err)
 			} else if n > 0 {
 				logger.Info("released expired ip reservations", "count", n)
 			}
+			refreshResourceGauges(ctx, logger, db, metrics)
 		}
+	}
+}
+
+// refreshResourceGauges tính lại toàn bộ resource gauge (vmf_jobs_active/
+// vmf_job_backlog/vmf_ip_pool_addresses/vmf_instances, tài liệu 09 mục
+// 3.1/3.3) từ DB tại thời điểm scrape — Reset trước khi set lại để
+// không giữ series cũ của state/segment không còn dữ liệu.
+func refreshResourceGauges(ctx context.Context, logger *slog.Logger, db *storage.DB, metrics *observability.Metrics) {
+	metrics.ResetJobsActive()
+	var backlog float64
+	if rows, err := db.QueryContext(ctx, `SELECT state, COUNT(*) FROM provisioning_jobs GROUP BY state`); err != nil {
+		logger.Error("refresh vmf_jobs_active failed", "error", err)
+	} else {
+		for rows.Next() {
+			var state string
+			var count float64
+			if err := rows.Scan(&state, &count); err != nil {
+				logger.Error("scan vmf_jobs_active row failed", "error", err)
+				continue
+			}
+			metrics.SetJobsActive(state, count)
+			if state == string(domain.JobQueued) || state == string(domain.JobRetryWait) {
+				backlog += count
+			}
+		}
+		_ = rows.Close()
+	}
+	metrics.SetJobBacklog(backlog)
+
+	metrics.ResetJobStateAge()
+	if rows, err := db.QueryContext(ctx, `
+		SELECT checkpoint, EXTRACT(EPOCH FROM now() - MIN(started_at))
+		FROM provisioning_jobs
+		WHERE state = 'RUNNING' AND started_at IS NOT NULL
+		GROUP BY checkpoint
+	`); err != nil {
+		logger.Error("refresh vmf_job_state_age_seconds failed", "error", err)
+	} else {
+		for rows.Next() {
+			var checkpoint string
+			var age float64
+			if err := rows.Scan(&checkpoint, &age); err != nil {
+				logger.Error("scan vmf_job_state_age_seconds row failed", "error", err)
+				continue
+			}
+			metrics.SetJobStateAge(checkpoint, age)
+		}
+		_ = rows.Close()
+	}
+
+	metrics.ResetIPPoolAddresses()
+	if rows, err := db.QueryContext(ctx, `
+		SELECT s.name, a.state, COUNT(*)
+		FROM ip_allocations a JOIN network_segments s ON s.id = a.segment_id
+		GROUP BY s.name, a.state
+	`); err != nil {
+		logger.Error("refresh vmf_ip_pool_addresses failed", "error", err)
+	} else {
+		for rows.Next() {
+			var segment, state string
+			var count float64
+			if err := rows.Scan(&segment, &state, &count); err != nil {
+				logger.Error("scan vmf_ip_pool_addresses row failed", "error", err)
+				continue
+			}
+			metrics.SetIPPoolAddresses(segment, state, count)
+		}
+		_ = rows.Close()
+	}
+
+	metrics.ResetInstances()
+	if rows, err := db.QueryContext(ctx, `
+		SELECT i.state, COALESCE(t.version, ''), COALESCE(i.pve_node, ''), COUNT(*)
+		FROM vm_instances i LEFT JOIN vm_templates t ON t.id = i.template_id
+		GROUP BY i.state, t.version, i.pve_node
+	`); err != nil {
+		logger.Error("refresh vmf_instances failed", "error", err)
+	} else {
+		for rows.Next() {
+			var state, templateVersion, pveNode string
+			var count float64
+			if err := rows.Scan(&state, &templateVersion, &pveNode, &count); err != nil {
+				logger.Error("scan vmf_instances row failed", "error", err)
+				continue
+			}
+			metrics.SetInstances(state, templateVersion, pveNode, count)
+		}
+		_ = rows.Close()
 	}
 }
 

@@ -102,6 +102,21 @@ func main() {
 		}
 	}()
 
+	// vmf-api không tự sinh job/proxmox/resource metric (đó là việc của
+	// vmf-worker) — vẫn phục vụ /metrics rỗng-nhưng-hợp-lệ để Prometheus
+	// scrape target này lên (up{job="vmf-api"}) mà không lỗi, nhất quán
+	// với observability.metrics_listen đã có trong config.
+	var metricsSrv *http.Server
+	if cfg.Observability.MetricsListen != "" {
+		metricsSrv = &http.Server{Addr: cfg.Observability.MetricsListen, Handler: observability.NewMetrics().Handler(), ReadHeaderTimeout: 10 * time.Second}
+		go func() {
+			logger.Info("metrics listening", "addr", cfg.Observability.MetricsListen)
+			if err := metricsSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				logger.Error("metrics server error", "error", err)
+			}
+		}()
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	<-ctx.Done()
@@ -112,6 +127,9 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("graceful shutdown failed", "error", err)
 		os.Exit(1)
+	}
+	if metricsSrv != nil {
+		_ = metricsSrv.Shutdown(shutdownCtx)
 	}
 }
 

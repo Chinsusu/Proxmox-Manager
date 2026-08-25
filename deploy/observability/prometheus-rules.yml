@@ -1,0 +1,128 @@
+# Prometheus alerting rules cho VM Factory (P0-10 Observability),
+# theo docs/09_Observability_Alerting_and_Test_Plan_v1.0.md muc 4.
+# Scrape target: vmf-worker/vmf-api tren observability.metrics_listen
+# (configs/vm-factory.example.yaml).
+#
+# 3 alert danh dau "[CHUA CO DU LIEU THAT]" tham chieu metric da DANG
+# KY (hien luon 0/khong co series) nhung CHUA co nguon emit that:
+#   - PGWAuthFailed / vmf_pgw_requests_total: can PGW Adapter that (P0-04).
+#   - ResourceLeak / vmf_orphans_total: can orphan scanner (P0-11).
+#   - StorageCapacityLow / vmf_pve_capacity: can Adapter method doc
+#     node/storage status Proxmox, chua verify tren cluster that.
+# Giu nguyen trong file de dashboard/alert-manager wiring khong phai
+# sua lai khi cac epic do hoan tat - chi can bo comment "chua emit".
+groups:
+  - name: vmf-provisioning
+    rules:
+      - alert: ProvisioningBacklogHigh
+        expr: vmf_job_backlog > 20
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Provisioning backlog cao ({{ $value }} job dang cho)"
+          description: "vmf_job_backlog > 20 lien tuc 10 phut - worker co the khong theo kip toc do tao job moi."
+
+      - alert: ProvisioningBacklogCritical
+        expr: vmf_job_backlog > 50
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Provisioning backlog rat cao ({{ $value }} job dang cho)"
+          description: "vmf_job_backlog > 50 lien tuc 10 phut - can kiem tra worker con song/nhieu instance worker hon."
+
+      - alert: JobStuckInState
+        expr: vmf_job_state_age_seconds > 1800
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Job dung o checkpoint {{ $labels.checkpoint }} qua 30 phut ({{ $value }}s)"
+          description: "vmf_job_state_age_seconds la metric bo sung (khong co trong tai lieu 09 muc 3.1) vi vmf_state_duration_seconds chi ghi transition DA XONG, khong phan anh job RUNNING hien tai dung o checkpoint bao lau."
+
+      - alert: WorkerLeaseChurn
+        expr: increase(vmf_job_lease_expired_total[15m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $value }} job lease bi reclaim trong 15 phut gan day"
+          description: "Worker co the dang crash lap giua chung (khong kip Fail/Complete truoc khi lease het han)."
+
+      - alert: DuplicateIdentity
+        expr: increase(vmf_identity_duplicates_total[15m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Phat hien machine-id/ssh-fingerprint trung lap"
+          description: "ValidatingIdentityHandler (P0-07) vua quarantine it nhat mot instance vi duplicate identity."
+
+      - alert: ResourceLeak
+        expr: increase(vmf_orphans_total{type="resource_leak"}[1h]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "[CHUA CO DU LIEU THAT] Instance FAILED/RETIRED con giu resource"
+          description: "Can orphan scanner (Epic P0-11) - vmf_orphans_total hien chua duoc emit boi bat ky component nao."
+
+      - alert: ProxmoxAuthFailed
+        expr: increase(vmf_pve_api_requests_total{status="PVE_AUTH_FAILED"}[5m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Proxmox API tra 401/403"
+          description: "Token vmfactory@pve!automation co the het han hoac bi thu hoi - kiem tra ngay, provisioning se dung hoan toan."
+
+      - alert: PGWAuthFailed
+        expr: increase(vmf_pgw_requests_total{status=~"401|403"}[5m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "[CHUA CO DU LIEU THAT] PGW API tra 401/403"
+          description: "Can PGW Adapter that (Epic P0-04) - vmf_pgw_requests_total hien chua duoc emit (pgw.NoopAdapter khong goi API nao)."
+
+      - alert: StorageCapacityLow
+        expr: vmf_pve_capacity{resource="storage_free_bytes"} < 10737418240
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "[CHUA CO DU LIEU THAT] Storage free duoi 10GiB"
+          description: "Can them Adapter method doc node/storage status Proxmox (chua trien khai, chua verify tren cluster that) - vmf_pve_capacity chua ton tai trong /metrics."
+
+      - alert: IPPoolLow
+        expr: vmf_ip_pool_addresses{state="FREE"} < 5
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Segment {{ $labels.segment }} con duoi 5 dia chi FREE"
+          description: "Sap het IP cho provisioning moi trong segment nay."
+
+      - alert: TemplateFailureRate
+        expr: |
+          sum by (template_version) (vmf_instances{state="QUARANTINED"})
+          /
+          sum by (template_version) (vmf_instances) > 0.3
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Template version {{ $labels.template_version }} co ty le QUARANTINED > 30%"
+          description: "Dung ty le instance QUARANTINED/tong instance theo template_version lam proxy cho failure rate (tai lieu 09 goc noi ve job failure rate, nhung vmf_jobs_total chua gan nhan template_version)."
+
+      - alert: EgressProofFail
+        expr: increase(vmf_validation_total{type="egress",result="FAIL"}[15m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "EGR-xxx validation FAIL trong 15 phut gan day"
+          description: "ValidatingEgressHandler (P0-07) vua danh gia FAIL - voi pgw.NoopAdapter day la hanh vi ky vong (chua co PGW that), nhung van can alert de khong bi bo qua khi PGW that (P0-04) da wiring."
+
+      - alert: RollbackIncomplete
+        expr: increase(vmf_rollback_incomplete_total[15m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Rollback compensating action tu no that bai"
+          description: "vmf_rollback_incomplete_total la metric bo sung (khong co trong tai lieu 09 muc 3.1) - instance con resource leftover thuc su (VM/PGW mapping/IP chua duoc don sach), can can thiep thu cong."

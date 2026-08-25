@@ -29,7 +29,7 @@ func (a *Adapter) Exec(ctx context.Context, ref VMRef, command []string) (pid in
 		params.Add("command", c)
 	}
 	path := fmt.Sprintf("/nodes/%s/qemu/%d/agent/exec", ref.Node, ref.VMID)
-	data, err := a.client.do(ctx, "POST", path, params)
+	data, err := a.client.do(ctx, "guest_exec", "POST", path, params)
 	if err != nil {
 		return 0, err
 	}
@@ -48,7 +48,7 @@ func (a *Adapter) ExecStatus(ctx context.Context, ref VMRef, pid int) (ExecResul
 	params := url.Values{}
 	params.Set("pid", strconv.Itoa(pid))
 	path := fmt.Sprintf("/nodes/%s/qemu/%d/agent/exec-status", ref.Node, ref.VMID)
-	data, err := a.client.do(ctx, "GET", path, params)
+	data, err := a.client.do(ctx, "guest_exec_status", "GET", path, params)
 	if err != nil {
 		return ExecResult{}, err
 	}
@@ -81,7 +81,7 @@ func (a *Adapter) WriteGuestFile(ctx context.Context, ref VMRef, path string, co
 	params.Set("content", base64.StdEncoding.EncodeToString(content))
 	params.Set("encode", "0")
 	p := fmt.Sprintf("/nodes/%s/qemu/%d/agent/file-write", ref.Node, ref.VMID)
-	_, err := a.client.do(ctx, "POST", p, params)
+	_, err := a.client.do(ctx, "write_guest_file", "POST", p, params)
 	if err != nil {
 		return fmt.Errorf("proxmox: write guest file %s: %w", path, err)
 	}

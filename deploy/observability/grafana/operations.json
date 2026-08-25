@@ -1,0 +1,84 @@
+{
+  "title": "VM Factory - Operations",
+  "uid": "vmf-operations",
+  "schemaVersion": 39,
+  "timezone": "browser",
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      { "name": "DS_PROMETHEUS", "type": "datasource", "query": "prometheus", "current": {} }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Job waterfall by state",
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "sum by (state) (vmf_jobs_active)", "legendFormat": "{{state}}" }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Proxmox API latency p95 by operation",
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(vmf_pve_api_latency_seconds_bucket[5m])))",
+          "legendFormat": "{{operation}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Worker lease backlog / churn",
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "vmf_job_backlog", "legendFormat": "backlog" },
+        { "expr": "increase(vmf_job_lease_expired_total[5m])", "legendFormat": "lease expired (5m)" }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Proxmox API error rate by status (capacity gauge chua wiring - xem P0-10 follow-up)",
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "description": "vmf_pve_capacity{node,resource} chua co nguon emit that (can Adapter method doc node/storage status chua verify tren cluster that) - dung error rate lam proxy tam thoi cho 'Proxmox pressure'.",
+      "targets": [
+        { "expr": "sum by (status) (rate(vmf_pve_api_requests_total{status!=\"ok\"}[5m]))", "legendFormat": "{{status}}" }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "PGW binding / egress proof state (chua co du lieu that - P0-04)",
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+      "description": "vmf_pgw_binding_state/vmf_egress_proof_total da dang ky nhung chua duoc emit boi bat ky adapter nao (pgw.NoopAdapter khong goi API that) - panel se trong cho toi khi P0-04 (PGW Adapter that) hoan tat.",
+      "targets": [
+        { "expr": "vmf_pgw_binding_state", "legendFormat": "{{state}}" }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Rollback incomplete / orphan queue",
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+      "description": "vmf_orphans_total chua duoc emit (can orphan scanner, Epic P0-11) - vmf_rollback_incomplete_total da co du lieu that tu cmd/worker.",
+      "targets": [
+        { "expr": "increase(vmf_rollback_incomplete_total[15m])", "legendFormat": "rollback incomplete (15m)" },
+        { "expr": "sum by (system, type) (vmf_orphans_total)", "legendFormat": "orphans {{system}}/{{type}}" }
+      ]
+    }
+  ]
+}
