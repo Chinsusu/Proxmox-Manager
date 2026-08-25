@@ -82,6 +82,19 @@ func (r *Repository) MarkAssigned(ctx context.Context, allocationID, instanceID 
 	return requireRowsAffected(res)
 }
 
+// MarkQuarantined chuyển một allocation RESERVED/ASSIGNED sang
+// QUARANTINED (Phần V mục 7: "block automatic reuse of IP/proxy
+// binding") — không tự Release, chặn tái sử dụng tới khi operator xử lý.
+func (r *Repository) MarkQuarantined(ctx context.Context, allocationID string) error {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE ip_allocations SET state = 'QUARANTINED' WHERE id = $1 AND state IN ('RESERVED', 'ASSIGNED')
+	`, allocationID)
+	if err != nil {
+		return fmt.Errorf("ipam: mark quarantined: %w", err)
+	}
+	return requireRowsAffected(res)
+}
+
 // Release trả một allocation về FREE (rollback hoặc decommission, Phần
 // VI mục 3.3) — reaper/state engine chỉ được gọi sau khi đã xác nhận
 // không còn external VM/mapping tham chiếu tới nó.

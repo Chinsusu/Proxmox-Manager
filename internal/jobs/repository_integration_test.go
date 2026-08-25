@@ -96,6 +96,35 @@ func seedJob(ctx context.Context, t *testing.T, db *storage.DB, instanceID strin
 	return jobID
 }
 
+func TestRepository_Create(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	instanceID := seedInstance(ctx, t, db)
+	repo := NewRepository(db)
+
+	created, err := repo.Create(ctx, db, instanceID, domain.JobOpProvision, domain.InstanceRequested)
+	if err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+	if created.State != domain.JobQueued {
+		t.Errorf("State = %s, want QUEUED", created.State)
+	}
+	if created.Checkpoint != domain.InstanceRequested {
+		t.Errorf("Checkpoint = %s, want REQUESTED", created.Checkpoint)
+	}
+	if created.Operation != domain.JobOpProvision {
+		t.Errorf("Operation = %s, want PROVISION", created.Operation)
+	}
+
+	claimed, err := repo.Claim(ctx, "worker-1", 10*time.Minute)
+	if err != nil {
+		t.Fatalf("Claim() after Create() error: %v", err)
+	}
+	if claimed.ID != created.ID {
+		t.Fatalf("claimed job id = %s, want %s", claimed.ID, created.ID)
+	}
+}
+
 func TestRepository_Claim_HappyPath(t *testing.T) {
 	ctx := context.Background()
 	db := openTestDB(t)
