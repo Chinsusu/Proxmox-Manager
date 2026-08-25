@@ -57,7 +57,7 @@ type SegmentHandlers struct {
 // response schema cho endpoint này không có next_cursor, khác các list
 // endpoint khác — số lượng segment trong thực tế nhỏ, một vài subnet).
 func (h *SegmentHandlers) List(w http.ResponseWriter, r *http.Request) {
-	segments, err := h.Segments.List(r.Context())
+	segments, err := h.Segments.List(r.Context(), "")
 	if err != nil {
 		WriteError(w, r, http.StatusInternalServerError, "INTERNAL", "failed to list network segments")
 		return

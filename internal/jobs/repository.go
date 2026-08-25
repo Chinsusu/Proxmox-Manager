@@ -165,6 +165,85 @@ func (r *Repository) Get(ctx context.Context, jobID string) (*domain.Provisionin
 	return scanJob(r.db.QueryRowContext(ctx, selectJobByID, jobID))
 }
 
+// ListFilter lọc GET /v1/jobs (UI integration, API_UI_Gap_Register mục
+// 3.1) — field rỗng nghĩa là không lọc theo field đó.
+type ListFilter struct {
+	State      string
+	Operation  string
+	InstanceID string
+	// Q tìm theo vm_instances.logical_name/hostname (ILIKE) — job tự nó
+	// không có tên, operator tìm theo instance liên quan thực tế hơn.
+	Q string
+}
+
+// List trả job mới nhất trước (created_at DESC, id DESC), keyset
+// pagination — afterCreatedAt zero-value + afterID rỗng nghĩa "từ đầu".
+func (r *Repository) List(ctx context.Context, filter ListFilter, afterCreatedAt time.Time, afterID string, limit int) ([]domain.ProvisioningJob, error) {
+	query := `SELECT j.id, j.instance_id, j.operation, j.state, j.checkpoint, j.checkpoint_data,
+		j.priority, j.attempt, j.max_attempts, j.next_attempt_at,
+		j.lease_owner, j.lease_expires_at, j.error_code, j.error_message,
+		j.created_at, j.started_at, j.finished_at
+		FROM provisioning_jobs j`
+	args := []any{}
+	if filter.Q != "" {
+		query += ` JOIN vm_instances i ON i.id = j.instance_id`
+	}
+	query += ` WHERE 1=1`
+	if filter.Q != "" {
+		args = append(args, "%"+filter.Q+"%")
+		query += fmt.Sprintf(" AND (i.logical_name ILIKE $%d OR i.hostname ILIKE $%d)", len(args), len(args))
+	}
+	if filter.State != "" {
+		args = append(args, filter.State)
+		query += fmt.Sprintf(" AND j.state = $%d", len(args))
+	}
+	if filter.Operation != "" {
+		args = append(args, filter.Operation)
+		query += fmt.Sprintf(" AND j.operation = $%d", len(args))
+	}
+	if filter.InstanceID != "" {
+		args = append(args, filter.InstanceID)
+		query += fmt.Sprintf(" AND j.instance_id = $%d", len(args))
+	}
+	args = append(args, nullableTime(afterCreatedAt), nullableString(afterID))
+	query += fmt.Sprintf(" AND ($%d::timestamptz IS NULL OR (j.created_at, j.id) < ($%d::timestamptz, $%d::uuid))", len(args)-1, len(args)-1, len(args))
+	args = append(args, limit)
+	query += fmt.Sprintf(" ORDER BY j.created_at DESC, j.id DESC LIMIT $%d", len(args))
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("jobs: list: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []domain.ProvisioningJob
+	for rows.Next() {
+		j, err := scanJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *j)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("jobs: iterate: %w", err)
+	}
+	return out, nil
+}
+
+func nullableTime(t time.Time) any {
+	if t.IsZero() {
+		return nil
+	}
+	return t
+}
+
+func nullableString(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
 // Requeue đưa một job FAILED/RETRY_WAIT về QUEUED ngay (bỏ qua backoff
 // timer còn lại), xoá error/lease cũ — dùng bởi API layer (P0-09) khi
 // operator gọi retry thủ công. Nhận storage.QueryRower để tham gia

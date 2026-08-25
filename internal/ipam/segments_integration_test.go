@@ -80,7 +80,7 @@ func TestSegmentRepository_List(t *testing.T) {
 		t.Fatalf("Create() error: %v", err)
 	}
 
-	segments, err := repo.List(ctx)
+	segments, err := repo.List(ctx, "")
 	if err != nil {
 		t.Fatalf("List() error: %v", err)
 	}

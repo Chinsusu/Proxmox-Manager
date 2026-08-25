@@ -59,9 +59,17 @@ func (r *SegmentRepository) GetByName(ctx context.Context, name string) (*domain
 	return scanSegment(r.db.QueryRowContext(ctx, selectSegmentByName, name))
 }
 
-// List trả mọi segment, sắp theo tên.
-func (r *SegmentRepository) List(ctx context.Context) ([]domain.NetworkSegment, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT `+segmentColumns+` FROM network_segments ORDER BY name`)
+// List trả segment sắp theo tên, lọc theo state nếu khác rỗng (dùng cho
+// GET /v1/network-segments và GET /v1/ip-pools, API_UI_Gap_Register mục 3.2).
+func (r *SegmentRepository) List(ctx context.Context, state string) ([]domain.NetworkSegment, error) {
+	query := `SELECT ` + segmentColumns + ` FROM network_segments WHERE 1=1`
+	var args []any
+	if state != "" {
+		args = append(args, state)
+		query += fmt.Sprintf(" AND state = $%d", len(args))
+	}
+	query += ` ORDER BY name`
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("ipam: list segments: %w", err)
 	}

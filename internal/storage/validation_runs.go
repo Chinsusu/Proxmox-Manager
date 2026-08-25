@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/Chinsusu/vm-factory/internal/domain"
 )
@@ -94,6 +95,70 @@ func (r *ValidationRunRepository) LatestPerType(ctx context.Context, instanceID 
 		return nil, fmt.Errorf("storage: iterate validation runs: %w", err)
 	}
 	return runs, nil
+}
+
+// ValidationListFilter lọc GET /v1/validations (UI integration,
+// API_UI_Gap_Register mục 3.4) — field rỗng nghĩa là không lọc theo field đó.
+type ValidationListFilter struct {
+	InstanceID string
+	Result     string
+	Type       string
+}
+
+// List trả validation run mới nhất trước (started_at DESC, id DESC),
+// keyset pagination — afterStartedAt zero-value + afterID rỗng nghĩa "từ đầu".
+func (r *ValidationRunRepository) List(ctx context.Context, filter ValidationListFilter, afterStartedAt time.Time, afterID string, limit int) ([]domain.ValidationRun, error) {
+	query := `SELECT ` + validationRunColumns + ` FROM validation_runs WHERE 1=1`
+	var args []any
+	if filter.InstanceID != "" {
+		args = append(args, filter.InstanceID)
+		query += fmt.Sprintf(" AND instance_id = $%d", len(args))
+	}
+	if filter.Result != "" {
+		args = append(args, filter.Result)
+		query += fmt.Sprintf(" AND result = $%d", len(args))
+	}
+	if filter.Type != "" {
+		args = append(args, filter.Type)
+		query += fmt.Sprintf(" AND type = $%d", len(args))
+	}
+	args = append(args, nullableTime(afterStartedAt), nullableString(afterID))
+	query += fmt.Sprintf(" AND ($%d::timestamptz IS NULL OR (started_at, id) < ($%d::timestamptz, $%d::uuid))", len(args)-1, len(args)-1, len(args))
+	args = append(args, limit)
+	query += fmt.Sprintf(" ORDER BY started_at DESC, id DESC LIMIT $%d", len(args))
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("storage: list validation runs: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var runs []domain.ValidationRun
+	for rows.Next() {
+		run, err := scanValidationRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		runs = append(runs, *run)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("storage: iterate validation runs: %w", err)
+	}
+	return runs, nil
+}
+
+func nullableTime(t time.Time) any {
+	if t.IsZero() {
+		return nil
+	}
+	return t
+}
+
+func nullableString(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 const validationRunColumns = `id, instance_id, job_id, type, result, ruleset_version, evidence, started_at, finished_at`

@@ -92,6 +92,36 @@ type JobHandlers struct {
 	Idem   *storage.IdempotencyRepository
 }
 
+// List implement GET /v1/jobs?state=&operation=&instance_id=&q=&limit=&cursor=
+// (UI integration, API_UI_Gap_Register mục 3.1).
+func (h *JobHandlers) List(w http.ResponseWriter, r *http.Request) {
+	cursor, limit, err := PageParams(r)
+	if err != nil {
+		WriteError(w, r, http.StatusBadRequest, "INVALID_PAGE_PARAMS", err.Error())
+		return
+	}
+	filter := jobs.ListFilter{
+		State:      r.URL.Query().Get("state"),
+		Operation:  r.URL.Query().Get("operation"),
+		InstanceID: r.URL.Query().Get("instance_id"),
+		Q:          r.URL.Query().Get("q"),
+	}
+	items, err := h.Jobs.List(r.Context(), filter, cursor.After, cursor.AfterID, limit+1)
+	if err != nil {
+		WriteError(w, r, http.StatusInternalServerError, "INTERNAL", "failed to list jobs")
+		return
+	}
+	page, next := Paginate(items, limit,
+		func(j domain.ProvisioningJob) time.Time { return j.CreatedAt },
+		func(j domain.ProvisioningJob) string { return j.ID })
+
+	resp := make([]jobResponse, len(page))
+	for i, j := range page {
+		resp[i] = toJobResponse(j)
+	}
+	writeJSON(w, http.StatusOK, listEnvelope[jobResponse]{Items: resp, NextCursor: next})
+}
+
 // Get implement GET /v1/jobs/{id}.
 func (h *JobHandlers) Get(w http.ResponseWriter, r *http.Request) {
 	job, err := h.Jobs.Get(r.Context(), r.PathValue("id"))

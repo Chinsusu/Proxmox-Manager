@@ -109,3 +109,59 @@ func TestReader_ListByResource_DifferentResourceIsolated(t *testing.T) {
 		t.Fatalf("ListByResource(resourceA) = %+v, want exactly 1 event cho resourceA", got)
 	}
 }
+
+// TestReader_List_FiltersGeneric bao phu GET /v1/audit-events (UI
+// integration, API_UI_Gap_Register mục 3.6) — khác ListByResource
+// (luôn scope theo MỘT resource cụ thể), List lọc chung không giới hạn resource.
+func TestReader_List_FiltersGeneric(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	writer := NewWriter()
+	reader := NewReader(db)
+
+	resourceID := uniqueResourceID(t)
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(ctx, `DELETE FROM audit_events WHERE resource_id = $1`, resourceID)
+	})
+
+	if err := writer.Append(ctx, db, domain.AuditEvent{
+		ActorType: "operator", ActorID: "alice", Action: "quarantine", ResourceType: "vm_instance", ResourceID: resourceID,
+	}); err != nil {
+		t.Fatalf("Append() quarantine error: %v", err)
+	}
+	if err := writer.Append(ctx, db, domain.AuditEvent{
+		ActorType: "operator", ActorID: "bob", Action: "rebuild", ResourceType: "vm_instance", ResourceID: resourceID,
+	}); err != nil {
+		t.Fatalf("Append() rebuild error: %v", err)
+	}
+
+	t.Run("filter by actor", func(t *testing.T) {
+		got, err := reader.List(ctx, ListFilter{Actor: "alice", ResourceID: resourceID}, time.Time{}, "", 100)
+		if err != nil {
+			t.Fatalf("List() error: %v", err)
+		}
+		if len(got) != 1 || got[0].Action != "quarantine" {
+			t.Fatalf("List(actor=alice) = %+v, want exactly the quarantine event", got)
+		}
+	})
+
+	t.Run("filter by action", func(t *testing.T) {
+		got, err := reader.List(ctx, ListFilter{Action: "rebuild", ResourceID: resourceID}, time.Time{}, "", 100)
+		if err != nil {
+			t.Fatalf("List() error: %v", err)
+		}
+		if len(got) != 1 || got[0].ActorID != "bob" {
+			t.Fatalf("List(action=rebuild) = %+v, want exactly bob's event", got)
+		}
+	})
+
+	t.Run("q searches action/resource_type/resource_id", func(t *testing.T) {
+		got, err := reader.List(ctx, ListFilter{Q: "quarant", ResourceID: resourceID}, time.Time{}, "", 100)
+		if err != nil {
+			t.Fatalf("List() error: %v", err)
+		}
+		if len(got) != 1 || got[0].Action != "quarantine" {
+			t.Fatalf("List(q=quarant) = %+v, want exactly the quarantine event", got)
+		}
+	})
+}

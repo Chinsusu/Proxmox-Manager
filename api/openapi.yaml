@@ -1,9 +1,12 @@
 openapi: 3.1.0
 info:
   title: VM Factory API
-  version: 1.1.0
+  version: 1.2.0
   description: API quản lý template, VM instance, provisioning job, validation và
     lifecycle actions. v1.1 bổ sung response schemas và POST /v1/jobs/{id}/retry.
+    v1.2 bổ sung endpoint UI console (GET /v1/jobs list, /v1/ip-pools,
+    /v1/validations, /v1/audit-events(/export), /v1/egress-bindings,
+    /v1/alerts(/acknowledge)) và Instance.capabilities.
 servers:
 - url: https://vmf.example/api
 security:
@@ -189,6 +192,46 @@ paths:
       responses:
         '202':
           description: Accepted
+  /v1/jobs:
+    get:
+      summary: List provisioning jobs
+      parameters:
+      - name: state
+        in: query
+        schema:
+          type: string
+      - name: operation
+        in: query
+        schema:
+          type: string
+      - name: instance_id
+        in: query
+        schema:
+          type: string
+      - name: q
+        in: query
+        schema:
+          type: string
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Job'
+                  next_cursor:
+                    type:
+                    - string
+                    - 'null'
   /v1/jobs/{id}:
     get:
       summary: Get provisioning job
@@ -273,6 +316,257 @@ paths:
       responses:
         '201':
           description: Created
+  /v1/ip-pools:
+    get:
+      summary: List IP pool capacity per network segment
+      parameters:
+      - name: segment_id
+        in: query
+        schema:
+          type: string
+      - name: state
+        in: query
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/IPPool'
+  /v1/validations:
+    get:
+      summary: List validation runs
+      parameters:
+      - name: instance_id
+        in: query
+        schema:
+          type: string
+      - name: result
+        in: query
+        schema:
+          type: string
+      - name: type
+        in: query
+        schema:
+          type: string
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ValidationRun'
+                  next_cursor:
+                    type:
+                    - string
+                    - 'null'
+  /v1/audit-events:
+    get:
+      summary: List audit events
+      parameters:
+      - name: q
+        in: query
+        schema:
+          type: string
+      - name: actor
+        in: query
+        schema:
+          type: string
+      - name: action
+        in: query
+        schema:
+          type: string
+      - name: resource_type
+        in: query
+        schema:
+          type: string
+      - name: resource_id
+        in: query
+        schema:
+          type: string
+      - name: from
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: to
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AuditEvent'
+                  next_cursor:
+                    type:
+                    - string
+                    - 'null'
+  /v1/audit-events/export:
+    get:
+      summary: Export audit events as JSON Lines
+      parameters:
+      - name: format
+        in: query
+        schema:
+          type: string
+          enum:
+          - jsonl
+      - name: q
+        in: query
+        schema:
+          type: string
+      - name: actor
+        in: query
+        schema:
+          type: string
+      - name: action
+        in: query
+        schema:
+          type: string
+      - name: resource_type
+        in: query
+        schema:
+          type: string
+      - name: resource_id
+        in: query
+        schema:
+          type: string
+      - name: from
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: to
+        in: query
+        schema:
+          type: string
+          format: date-time
+      responses:
+        '200':
+          description: OK (application/x-ndjson body, mỗi dòng một AuditEvent)
+  /v1/egress-bindings:
+    get:
+      summary: List egress bindings (suy ra từ checkpoint job + validation run egress, chưa phải bảng riêng - chờ P0-04)
+      parameters:
+      - name: state
+        in: query
+        schema:
+          type: string
+      - name: instance_id
+        in: query
+        schema:
+          type: string
+      - name: proof_result
+        in: query
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EgressBinding'
+  /v1/alerts:
+    get:
+      summary: List alerts
+      parameters:
+      - name: status
+        in: query
+        schema:
+          type: string
+      - name: severity
+        in: query
+        schema:
+          type: string
+      - name: resource_type
+        in: query
+        schema:
+          type: string
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Alert'
+                  next_cursor:
+                    type:
+                    - string
+                    - 'null'
+  /v1/alerts/{id}/acknowledge:
+    post:
+      summary: Acknowledge an alert
+      parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note:
+                  type: string
+                version:
+                  type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Alert'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /v1/findings:
     get:
       summary: List drift/orphan/invariant findings
@@ -329,6 +623,18 @@ components:
       name: id
       in: path
       required: true
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+    Cursor:
+      name: cursor
+      in: query
       schema:
         type: string
   responses:
@@ -636,6 +942,18 @@ components:
           - string
           - 'null'
           format: date-time
+        capabilities:
+          type: object
+          description: Gần đúng theo instance state - backend vẫn re-check tại thời điểm action, có thể trả 409 nếu state đã đổi.
+          properties:
+            retry:
+              type: boolean
+            rebuild:
+              type: boolean
+            quarantine:
+              type: boolean
+            decommission:
+              type: boolean
     Job:
       type: object
       required:
@@ -868,3 +1186,164 @@ components:
         detected_at:
           type: string
           format: date-time
+    IPPool:
+      type: object
+      required:
+      - segment_id
+      - cidr
+      - total
+      properties:
+        segment_id:
+          type: string
+        segment_name:
+          type: string
+        cidr:
+          type: string
+        state:
+          type: string
+        total:
+          type: integer
+        available:
+          type: integer
+        reserved:
+          type: integer
+        assigned:
+          type: integer
+        quarantined:
+          type: integer
+        utilization_ratio:
+          type: number
+        warning_threshold:
+          type: number
+    AuditEvent:
+      type: object
+      required:
+      - id
+      - occurred_at
+      - actor_type
+      - actor_id
+      - action
+      - resource_type
+      - resource_id
+      properties:
+        id:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+        actor_type:
+          type: string
+        actor_id:
+          type: string
+        action:
+          type: string
+        resource_type:
+          type: string
+        resource_id:
+          type: string
+        request_id:
+          type:
+          - string
+          - 'null'
+        correlation_id:
+          type:
+          - string
+          - 'null'
+        before:
+          type: object
+          additionalProperties: true
+        after:
+          type: object
+          additionalProperties: true
+        metadata:
+          type: object
+          additionalProperties: true
+    EgressBinding:
+      type: object
+      description: Suy ra từ provisioning_jobs.checkpoint_data + validation_runs (type=egress) - chưa phải bảng riêng, chờ Epic P0-04 (PGW Adapter thật). policy/expected_exit chưa có nguồn dữ liệu, luôn rỗng.
+      required:
+      - instance_id
+      - pgw_mapping_id
+      - state
+      properties:
+        instance_id:
+          type: string
+        logical_name:
+          type: string
+        hostname:
+          type: string
+        pgw_client_id:
+          type: string
+        pgw_mapping_id:
+          type: string
+        generation:
+          type: integer
+        bound_at:
+          type: string
+          format: date-time
+        state:
+          type: string
+          enum:
+          - PENDING
+          - ACTIVE
+          - SUSPENDED
+        proof_result:
+          type: string
+        proof_age_seconds:
+          type:
+          - number
+          - 'null'
+        proof_checked_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+    Alert:
+      type: object
+      required:
+      - id
+      - status
+      - severity
+      - resource_type
+      - resource_id
+      - title
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum:
+          - firing
+          - acknowledged
+          - resolved
+        severity:
+          type: string
+        resource_type:
+          type: string
+        resource_id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        acknowledged_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        acknowledged_by:
+          type:
+          - string
+          - 'null'
+        acknowledged_note:
+          type:
+          - string
+          - 'null'
+        version:
+          type: integer

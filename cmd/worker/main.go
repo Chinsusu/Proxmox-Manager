@@ -142,6 +142,8 @@ func main() {
 		}()
 	}
 
+	alertsRepo := storage.NewAlertRepository(db)
+
 	maintenanceInterval := cfg.Provisioning.JobLease.AsTimeDuration() / 2
 	if maintenanceInterval <= 0 {
 		maintenanceInterval = 30 * time.Second
@@ -149,7 +151,7 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		runMaintenanceLoop(ctx, logger, db, jobs.NewRepository(db), ipam.NewReaper(db, audit.NewWriter()), metrics, maintenanceInterval)
+		runMaintenanceLoop(ctx, logger, db, jobs.NewRepository(db), ipam.NewReaper(db, audit.NewWriter()), metrics, alertsRepo, maintenanceInterval)
 	}()
 
 	concurrency := cfg.Provisioning.WorkerConcurrency
@@ -169,6 +171,7 @@ func main() {
 			cfg:       cfg.Provisioning,
 			logger:    logger,
 			metrics:   metrics,
+			alerts:    alertsRepo,
 		}
 		wg.Add(1)
 		go func() {
@@ -256,6 +259,7 @@ type worker struct {
 	cfg       config.ProvisioningConfig
 	logger    *slog.Logger
 	metrics   *observability.Metrics
+	alerts    *storage.AlertRepository
 }
 
 func (w *worker) run(ctx context.Context) {
@@ -389,8 +393,26 @@ func (w *worker) terminalFail(ctx context.Context, job *domain.ProvisioningJob, 
 	}
 	if finalState == domain.InstanceQuarantined {
 		w.metrics.IncRollbackIncomplete()
+		w.upsertAlert(ctx, domain.Alert{
+			Fingerprint: "rollback_incomplete:" + inst.ID, Severity: "critical",
+			ResourceType: "vm_instance", ResourceID: inst.ID,
+			Title:       "Rollback compensating action failed",
+			Description: fmt.Sprintf("job=%s reason=%q — resource leftover (VM/PGW mapping/IP) chưa được dọn sạch, cần điều tra thủ công", job.ID, msg),
+		})
 	}
 	w.logger.Info("rollback complete", "job_id", job.ID, "instance_id", inst.ID, "final_state", finalState)
+}
+
+// upsertAlert ghi/refresh một alert persisted (UI integration,
+// API_UI_Gap_Register mục 3.5) — best-effort, lỗi chỉ log không chặn
+// luồng chính (alert là quan sát phụ, không phải correctness-critical).
+func (w *worker) upsertAlert(ctx context.Context, a domain.Alert) {
+	if w.alerts == nil {
+		return
+	}
+	if err := w.alerts.Upsert(ctx, a); err != nil {
+		w.logger.Error("upsert alert failed", "fingerprint", a.Fingerprint, "error", err)
+	}
 }
 
 func (w *worker) heartbeatLoop(ctx context.Context, jobID string) {
@@ -437,7 +459,7 @@ func backoffDelay(attempt int) time.Duration {
 	return d + jitter
 }
 
-func runMaintenanceLoop(ctx context.Context, logger *slog.Logger, db *storage.DB, jobsRepo *jobs.Repository, reaper *ipam.Reaper, metrics *observability.Metrics, interval time.Duration) {
+func runMaintenanceLoop(ctx context.Context, logger *slog.Logger, db *storage.DB, jobsRepo *jobs.Repository, reaper *ipam.Reaper, metrics *observability.Metrics, alertsRepo *storage.AlertRepository, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -456,8 +478,58 @@ func runMaintenanceLoop(ctx context.Context, logger *slog.Logger, db *storage.DB
 			} else if n > 0 {
 				logger.Info("released expired ip reservations", "count", n)
 			}
-			refreshResourceGauges(ctx, logger, db, metrics)
+			backlog, jobStateAges := refreshResourceGauges(ctx, logger, db, metrics)
+			deriveOperationalAlerts(ctx, logger, alertsRepo, backlog, jobStateAges)
 		}
+	}
+}
+
+// Ngưỡng khớp deploy/observability/prometheus-rules.yml
+// (ProvisioningBacklogHigh/JobStuckInState) — alerts persisted (UI
+// integration) là đối tác vm-factory-native của MỘT PHẦN alert rule đó,
+// dùng chung ngưỡng để hai nơi không lệch nhau.
+const (
+	backlogWarningThreshold  = 20
+	backlogCriticalThreshold = 50
+	jobStuckThresholdSeconds = 1800
+)
+
+// deriveOperationalAlerts tạo/refresh alert persisted từ dữ liệu ĐÃ
+// TÍNH SẴN trong refreshResourceGauges (không query lại) — best-effort,
+// lỗi chỉ log.
+func deriveOperationalAlerts(ctx context.Context, logger *slog.Logger, alertsRepo *storage.AlertRepository, backlog float64, jobStateAges map[string]float64) {
+	if alertsRepo == nil {
+		return
+	}
+	upsert := func(a domain.Alert) {
+		if err := alertsRepo.Upsert(ctx, a); err != nil {
+			logger.Error("upsert alert failed", "fingerprint", a.Fingerprint, "error", err)
+		}
+	}
+
+	if backlog >= backlogCriticalThreshold {
+		upsert(domain.Alert{
+			Fingerprint: "provisioning_backlog", Severity: "critical", ResourceType: "system", ResourceID: "provisioning_backlog",
+			Title:       "Provisioning backlog rất cao",
+			Description: fmt.Sprintf("%.0f job đang QUEUED/RETRY_WAIT (ngưỡng critical: %d)", backlog, backlogCriticalThreshold),
+		})
+	} else if backlog >= backlogWarningThreshold {
+		upsert(domain.Alert{
+			Fingerprint: "provisioning_backlog", Severity: "warning", ResourceType: "system", ResourceID: "provisioning_backlog",
+			Title:       "Provisioning backlog cao",
+			Description: fmt.Sprintf("%.0f job đang QUEUED/RETRY_WAIT (ngưỡng warning: %d)", backlog, backlogWarningThreshold),
+		})
+	}
+
+	for checkpoint, age := range jobStateAges {
+		if age < jobStuckThresholdSeconds {
+			continue
+		}
+		upsert(domain.Alert{
+			Fingerprint: "job_stuck:" + checkpoint, Severity: "warning", ResourceType: "checkpoint", ResourceID: checkpoint,
+			Title:       "Job dừng lâu ở một checkpoint",
+			Description: fmt.Sprintf("Job RUNNING lâu nhất tại checkpoint %s đã %.0fs (ngưỡng: %ds)", checkpoint, age, jobStuckThresholdSeconds),
+		})
 	}
 }
 
@@ -465,7 +537,7 @@ func runMaintenanceLoop(ctx context.Context, logger *slog.Logger, db *storage.DB
 // vmf_job_backlog/vmf_ip_pool_addresses/vmf_instances, tài liệu 09 mục
 // 3.1/3.3) từ DB tại thời điểm scrape — Reset trước khi set lại để
 // không giữ series cũ của state/segment không còn dữ liệu.
-func refreshResourceGauges(ctx context.Context, logger *slog.Logger, db *storage.DB, metrics *observability.Metrics) {
+func refreshResourceGauges(ctx context.Context, logger *slog.Logger, db *storage.DB, metrics *observability.Metrics) (backlogOut float64, jobStateAgesOut map[string]float64) {
 	metrics.ResetJobsActive()
 	var backlog float64
 	if rows, err := db.QueryContext(ctx, `SELECT state, COUNT(*) FROM provisioning_jobs GROUP BY state`); err != nil {
@@ -488,6 +560,7 @@ func refreshResourceGauges(ctx context.Context, logger *slog.Logger, db *storage
 	metrics.SetJobBacklog(backlog)
 
 	metrics.ResetJobStateAge()
+	jobStateAges := make(map[string]float64)
 	if rows, err := db.QueryContext(ctx, `
 		SELECT checkpoint, EXTRACT(EPOCH FROM now() - MIN(started_at))
 		FROM provisioning_jobs
@@ -504,6 +577,7 @@ func refreshResourceGauges(ctx context.Context, logger *slog.Logger, db *storage
 				continue
 			}
 			metrics.SetJobStateAge(checkpoint, age)
+			jobStateAges[checkpoint] = age
 		}
 		_ = rows.Close()
 	}
@@ -547,6 +621,8 @@ func refreshResourceGauges(ctx context.Context, logger *slog.Logger, db *storage
 		}
 		_ = rows.Close()
 	}
+
+	return backlog, jobStateAges
 }
 
 // validateWorkerConfig chặn khởi động sớm với thông báo rõ ràng thay vì

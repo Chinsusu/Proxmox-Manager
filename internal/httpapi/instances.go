@@ -42,7 +42,38 @@ type instanceResponse struct {
 	CreatedAt         time.Time       `json:"created_at"`
 	UpdatedAt         time.Time       `json:"updated_at"`
 	RetiredAt         *time.Time      `json:"retired_at"`
+	Capabilities      capabilities    `json:"capabilities"`
 	DesiredConfig     json.RawMessage `json:"-"`
+}
+
+// capabilities khớp API_UI_Gap_Register mục 6 — GẦN ĐÚNG theo instance
+// state, KHÔNG kiểm tra state job hiện tại (vd Retry thật ra cần đúng
+// job đang FAILED/RETRY_WAIT, không chỉ instance chưa READY/RETIRED).
+// Backend vẫn là nguồn thật cuối cùng — mỗi handler tự re-check tại
+// thời điểm action, trả 409 nếu state đã đổi giữa lúc render và lúc
+// gọi (đúng như gap register mục 6 yêu cầu), field này chỉ giúp UI ẩn/
+// hiện nút hợp lý, không thay thế check đó.
+type capabilities struct {
+	Retry        bool `json:"retry"`
+	Rebuild      bool `json:"rebuild"`
+	Quarantine   bool `json:"quarantine"`
+	Decommission bool `json:"decommission"`
+}
+
+func capabilitiesForState(state domain.InstanceState) capabilities {
+	switch state {
+	case domain.InstanceRetired, domain.InstanceDraining, domain.InstanceDecommissioning, domain.InstanceReleasingResources:
+		return capabilities{}
+	case domain.InstanceReady:
+		return capabilities{Rebuild: true, Quarantine: true, Decommission: true}
+	case domain.InstanceQuarantined:
+		return capabilities{Retry: true, Rebuild: true, Decommission: true}
+	default:
+		// dang trong pipeline provisioning (RESERVING..APPLYING_WORKLOAD)
+		// hoac REQUESTED - co the dang ket, retry/quarantine hop ly;
+		// rebuild/decommission cho phep nhung it dung khi chua toi READY.
+		return capabilities{Retry: true, Rebuild: true, Quarantine: true, Decommission: true}
+	}
 }
 
 // desiredConfigPayload là shape lưu trong vm_instances.desired_config —
@@ -67,6 +98,7 @@ func toInstanceResponse(inst domain.VMInstance, ipAddress, currentJobID *string)
 		IPAddress: ipAddress, DesiredConfigHash: inst.DesiredConfigHash, WorkloadAdapter: inst.WorkloadAdapter,
 		CurrentJobID: currentJobID, Version: inst.Version,
 		CreatedAt: inst.CreatedAt, UpdatedAt: inst.UpdatedAt, RetiredAt: inst.RetiredAt,
+		Capabilities: capabilitiesForState(inst.State),
 	}
 	var cfg desiredConfigPayload
 	if err := json.Unmarshal(inst.DesiredConfig, &cfg); err == nil && cfg.NetworkSegmentID != "" {

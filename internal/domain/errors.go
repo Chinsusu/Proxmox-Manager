@@ -32,4 +32,10 @@ var (
 	// theo state machine đã chốt (template DRAFT→CANDIDATE→ACTIVE→
 	// DEPRECATED→REVOKED ở Phần IV mục 9, hoặc instance lifecycle).
 	ErrInvalidTransition = errors.New("domain: invalid state transition")
+
+	// ErrVersionConflict báo hiệu optimistic concurrency version client
+	// gửi lên không khớp bản ghi hiện tại (vd Acknowledge alert đã đổi
+	// version, API_UI_Gap_Register mục 3.5: "structured conflict when
+	// state changes between render and action").
+	ErrVersionConflict = errors.New("domain: version conflict")
 )
