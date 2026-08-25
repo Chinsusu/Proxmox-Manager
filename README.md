@@ -32,9 +32,9 @@ docs/          toàn bộ bộ hồ sơ thiết kế + coding/git standard
 
 ## Yêu cầu môi trường
 
-- Go 1.22+ (máy dev hiện tại: `go1.26.3`)
+- Go 1.26+ (bump từ 1.22 sau khi `govulncheck` phát hiện nhiều CVE stdlib chưa vá trên toolchain 1.22.x đã EOL — xem commit `fix(ci): bump go 1.22 -> 1.26`; máy dev hiện tại: `go1.26.3`)
 - PostgreSQL 16 (qua `deploy/docker-compose.yml` hoặc instance có sẵn)
-- `golangci-lint`, `goimports`, `golang-migrate` cho lint/build/migration đầy đủ (chưa cài trên máy scaffold ban đầu — xem mục Known gaps)
+- `golangci-lint` v2.13.1+ (bắt buộc dùng `golangci-lint-action@v7` trong CI — `@v6` không hỗ trợ config schema v2), `goimports`, `golang-migrate` cho build/migration đầy đủ
 - `make` — **không có sẵn trên máy Windows đã dùng để scaffold**; dùng lệnh `go`/`gofmt` trực tiếp nếu chưa cài `make` (xem tương đương từng target trong [Makefile](Makefile))
 
 ## Local dev
@@ -61,6 +61,5 @@ rồi trỏ `auth.jwt_public_key_file` trong `configs/local.yaml` tới `/tmp/vm
 ## Known gaps (trung thực về những gì chưa verify)
 
 - Migration `migrations/000001_init.*.sql` chưa được chạy thật trên PostgreSQL (máy scaffold không có Docker/psql) — thứ tự DROP trong `.down.sql` được suy ra bằng cách soát ngược dependency FK trong `.up.sql`, chưa execute-verify.
-- `.golangci.yml` chưa chạy qua `golangci-lint` thật (chưa cài trên máy này) — mới verify bằng `go vet`, `go build`, `go test`, `gofmt`.
-- `go test -race` không chạy được trên máy scaffold (thiếu gcc/cgo trên Windows); CI (Ubuntu runner) có gcc nên sẽ chạy được ở đó.
+- `go test -race` không chạy được trên máy scaffold (thiếu gcc/cgo trên Windows); CI (Ubuntu runner) có gcc nên chạy được ở đó — đã verify xanh trên CI.
 - Auth middleware verify JWT chữ ký RS256 đã có unit test (valid/expired/wrong-issuer/wrong-key/unknown-role), nhưng chưa có integration test end-to-end qua `cmd/api` thật.
