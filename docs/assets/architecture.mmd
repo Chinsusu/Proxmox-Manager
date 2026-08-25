@@ -1,0 +1,14 @@
+flowchart LR
+  OP[Operator / CI / CLI] --> API[vmf-api]
+  API --> DB[(PostgreSQL)]
+  API --> W[vmf-worker]
+  W --> DB
+  W --> PVE[Proxmox VE API]
+  W --> PGW[PGW API]
+  PVE --> VM[Linux VM]
+  W --> VM
+  W --> WA[Workload Adapter]
+  WA --> VM
+  API --> OBS[Metrics / Logs / Alerts]
+  W --> OBS
+  VM --> OBS

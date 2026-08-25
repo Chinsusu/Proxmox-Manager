@@ -1,0 +1,870 @@
+openapi: 3.1.0
+info:
+  title: VM Factory API
+  version: 1.1.0
+  description: API quản lý template, VM instance, provisioning job, validation và
+    lifecycle actions. v1.1 bổ sung response schemas và POST /v1/jobs/{id}/retry.
+servers:
+- url: https://vmf.example/api
+security:
+- bearerAuth: []
+paths:
+  /v1/templates:
+    get:
+      summary: List templates
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Template'
+                  next_cursor:
+                    type:
+                    - string
+                    - 'null'
+    post:
+      summary: Register template version
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TemplateCreate'
+      responses:
+        '201':
+          description: Created
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /v1/templates/{id}:
+    get:
+      summary: Get template
+      parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Template'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/templates/{id}/promote:
+    post:
+      summary: Promote template state
+      parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: Promotion job accepted
+  /v1/instances:
+    get:
+      summary: List instances
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Instance'
+                  next_cursor:
+                    type:
+                    - string
+                    - 'null'
+    post:
+      summary: Create instance
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InstanceCreate'
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcceptedJob'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /v1/instances/{id}:
+    get:
+      summary: Get instance
+      parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Instance'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/instances/{id}/evidence:
+    get:
+      summary: Get latest validation evidence
+      parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ValidationRun'
+  /v1/instances/{id}/retry:
+    post:
+      summary: Retry failed/retryable lifecycle job
+      parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: Accepted
+  /v1/instances/{id}/quarantine:
+    post:
+      summary: Quarantine instance
+      parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReasonRequest'
+      responses:
+        '202':
+          description: Accepted
+  /v1/instances/{id}/rebuild:
+    post:
+      summary: Rebuild instance as new generation
+      parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: Accepted
+  /v1/instances/{id}/decommission:
+    post:
+      summary: Drain and decommission instance
+      parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReasonRequest'
+      responses:
+        '202':
+          description: Accepted
+  /v1/jobs/{id}:
+    get:
+      summary: Get provisioning job
+      parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/jobs/{id}/retry:
+    post:
+      summary: Retry a terminal retryable job (tương đương `vmf job retry`)
+      parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReasonRequest'
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcceptedJob'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /v1/jobs/{id}/events:
+    get:
+      summary: List state/audit events for a job
+      parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/JobEvent'
+                  next_cursor:
+                    type:
+                    - string
+                    - 'null'
+  /v1/network-segments:
+    get:
+      summary: List network segments and capacity
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NetworkSegment'
+    post:
+      summary: Create network segment
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: Created
+  /v1/findings:
+    get:
+      summary: List drift/orphan/invariant findings
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Finding'
+                  next_cursor:
+                    type:
+                    - string
+                    - 'null'
+  /v1/health:
+    get:
+      summary: Service health
+      security: []
+      responses:
+        '200':
+          description: Healthy
+  /v1/ready:
+    get:
+      summary: Service readiness
+      security: []
+      responses:
+        '200':
+          description: Ready
+        '503':
+          description: Not ready
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
+    ResourceId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    Conflict:
+      description: Conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+  schemas:
+    TemplateCreate:
+      type: object
+      required:
+      - name
+      - version
+      - pve_cluster_id
+      - pve_node
+      - pve_template_vmid
+      - source_checksum
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+        family:
+          type: string
+        pve_cluster_id:
+          type: string
+        pve_node:
+          type: string
+        pve_template_vmid:
+          type: integer
+        storage:
+          type: string
+        source_checksum:
+          type: string
+        build_manifest:
+          type: object
+          additionalProperties: true
+    InstanceCreate:
+      type: object
+      required:
+      - template_id
+      - network_segment_id
+      - egress_policy_id
+      properties:
+        logical_name:
+          type: string
+        template_id:
+          type: string
+        network_segment_id:
+          type: string
+        egress_policy_id:
+          type: string
+        requested_ip:
+          type:
+          - string
+          - 'null'
+          format: ipv4
+        resources:
+          type: object
+          properties:
+            cores:
+              type: integer
+              minimum: 1
+            memory_mb:
+              type: integer
+              minimum: 256
+            disk_gb:
+              type: integer
+              minimum: 4
+        workload:
+          type: object
+          properties:
+            adapter:
+              type: string
+            spec:
+              type: object
+              additionalProperties: true
+    AcceptedJob:
+      type: object
+      required:
+      - instance_id
+      - job_id
+      - state
+      properties:
+        instance_id:
+          type: string
+        job_id:
+          type: string
+        state:
+          type: string
+          const: REQUESTED
+    ReasonRequest:
+      type: object
+      required:
+      - reason
+      properties:
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 1000
+    ErrorEnvelope:
+      type: object
+      required:
+      - error
+      properties:
+        error:
+          type: object
+          required:
+          - code
+          - message
+          - request_id
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties: true
+            request_id:
+              type: string
+    InstanceState:
+      type: string
+      enum:
+      - REQUESTED
+      - RESERVING
+      - CLONING
+      - CONFIGURING
+      - NETWORK_BINDING
+      - BOOTING
+      - WAITING_GUEST
+      - VALIDATING_IDENTITY
+      - VALIDATING_EGRESS
+      - APPLYING_WORKLOAD
+      - READY
+      - RETRY_WAIT
+      - DEGRADED
+      - QUARANTINED
+      - ROLLING_BACK
+      - FAILED
+      - DRAINING
+      - DECOMMISSIONING
+      - RELEASING_RESOURCES
+      - RETIRED
+    JobState:
+      type: string
+      enum:
+      - QUEUED
+      - RUNNING
+      - RETRY_WAIT
+      - SUCCEEDED
+      - FAILED
+      - CANCELLED
+    Template:
+      type: object
+      required:
+      - id
+      - name
+      - family
+      - version
+      - state
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        family:
+          type: string
+        version:
+          type: string
+        os_family:
+          type: string
+        os_version:
+          type: string
+        architecture:
+          type: string
+        pve_cluster_id:
+          type: string
+        pve_node:
+          type: string
+        pve_template_vmid:
+          type: integer
+        storage:
+          type:
+          - string
+          - 'null'
+        source_checksum:
+          type: string
+        build_manifest:
+          type: object
+          additionalProperties: true
+        state:
+          type: string
+          enum:
+          - DRAFT
+          - CANDIDATE
+          - ACTIVE
+          - DEPRECATED
+          - REVOKED
+        validation_status:
+          type: string
+          enum:
+          - PASS
+          - WARN
+          - FAIL
+          - UNKNOWN
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    Instance:
+      type: object
+      required:
+      - id
+      - logical_name
+      - hostname
+      - state
+      - generation
+      - template_id
+      properties:
+        id:
+          type: string
+        logical_name:
+          type: string
+        hostname:
+          type: string
+        state:
+          $ref: '#/components/schemas/InstanceState'
+        generation:
+          type: integer
+        template_id:
+          type: string
+        pve_cluster_id:
+          type:
+          - string
+          - 'null'
+        pve_node:
+          type:
+          - string
+          - 'null'
+        vmid:
+          type:
+          - integer
+          - 'null'
+        ip_address:
+          type:
+          - string
+          - 'null'
+        network_segment_id:
+          type:
+          - string
+          - 'null'
+        egress_binding:
+          type:
+          - object
+          - 'null'
+          properties:
+            pgw_client_id:
+              type:
+              - string
+              - 'null'
+            pgw_mapping_id:
+              type:
+              - string
+              - 'null'
+            state:
+              type: string
+            last_proof_at:
+              type:
+              - string
+              - 'null'
+              format: date-time
+        desired_config_hash:
+          type:
+          - string
+          - 'null'
+        workload_adapter:
+          type:
+          - string
+          - 'null'
+        current_job_id:
+          type:
+          - string
+          - 'null'
+        version:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        retired_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+    Job:
+      type: object
+      required:
+      - id
+      - instance_id
+      - operation
+      - state
+      - checkpoint
+      - attempt
+      properties:
+        id:
+          type: string
+        instance_id:
+          type: string
+        operation:
+          type: string
+          enum:
+          - PROVISION
+          - RETRY
+          - REBUILD
+          - QUARANTINE
+          - DECOMMISSION
+          - RECONCILE
+        state:
+          $ref: '#/components/schemas/JobState'
+        checkpoint:
+          $ref: '#/components/schemas/InstanceState'
+        checkpoint_data:
+          type: object
+          additionalProperties: true
+        priority:
+          type: integer
+        attempt:
+          type: integer
+        max_attempts:
+          type: integer
+        next_attempt_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        lease_owner:
+          type:
+          - string
+          - 'null'
+        lease_expires_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        error_code:
+          type:
+          - string
+          - 'null'
+        error_message:
+          type:
+          - string
+          - 'null'
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        finished_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+    JobEvent:
+      type: object
+      required:
+      - event_id
+      - type
+      - occurred_at
+      properties:
+        event_id:
+          type: string
+        type:
+          type: string
+        instance_id:
+          type: string
+        job_id:
+          type: string
+        from:
+          type:
+          - string
+          - 'null'
+        to:
+          type:
+          - string
+          - 'null'
+        correlation_id:
+          type:
+          - string
+          - 'null'
+        occurred_at:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: true
+    ValidationRun:
+      type: object
+      required:
+      - id
+      - instance_id
+      - type
+      - result
+      - ruleset_version
+      properties:
+        id:
+          type: string
+        instance_id:
+          type: string
+        job_id:
+          type:
+          - string
+          - 'null'
+        type:
+          type: string
+          enum:
+          - identity
+          - network
+          - egress
+          - workload
+          - template
+        result:
+          type: string
+          enum:
+          - PASS
+          - WARN
+          - FAIL
+          - UNKNOWN
+        ruleset_version:
+          type: string
+        evidence:
+          type: object
+          additionalProperties: true
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+    NetworkSegment:
+      type: object
+      required:
+      - id
+      - name
+      - cidr
+      - gateway
+      - bridge
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        cidr:
+          type: string
+        gateway:
+          type: string
+        bridge:
+          type: string
+        dns_servers:
+          type: array
+          items:
+            type: string
+        ipv6_policy:
+          type: string
+        allocation_strategy:
+          type: string
+        state:
+          type: string
+        capacity:
+          type: object
+          properties:
+            total:
+              type: integer
+            free:
+              type: integer
+            reserved:
+              type: integer
+            assigned:
+              type: integer
+            quarantined:
+              type: integer
+    Finding:
+      type: object
+      required:
+      - id
+      - category
+      - severity
+      - detected_at
+      properties:
+        id:
+          type: string
+        category:
+          type: string
+        severity:
+          type: string
+          enum:
+          - info
+          - warning
+          - critical
+        resource_type:
+          type:
+          - string
+          - 'null'
+        resource_id:
+          type:
+          - string
+          - 'null'
+        summary:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+        state:
+          type: string
+          enum:
+          - OPEN
+          - ACKNOWLEDGED
+          - REMEDIATING
+          - RESOLVED
+        detected_at:
+          type: string
+          format: date-time

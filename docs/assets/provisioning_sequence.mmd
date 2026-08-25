@@ -1,0 +1,22 @@
+sequenceDiagram
+  actor O as Operator
+  participant A as VMF API
+  participant D as PostgreSQL
+  participant G as PGW API
+  participant P as Proxmox API
+  participant V as Guest VM
+  O->>A: POST /v1/instances (Idempotency-Key)
+  A->>D: reserve VMID/IP/hostname + create job
+  A-->>O: 202 Accepted + job_id
+  A->>G: create client and suspended mapping
+  A->>P: clone template
+  P-->>A: task UPID
+  A->>P: poll task until stopped
+  A->>P: configure NIC/cloud-init/QGA
+  A->>G: activate mapping
+  A->>P: start VM
+  A->>V: wait QGA/cloud-init
+  A->>V: identity/network validation
+  A->>G: egress proof
+  A->>V: apply workload adapter
+  A->>D: READY + evidence + audit

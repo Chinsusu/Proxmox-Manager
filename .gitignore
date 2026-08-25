@@ -1,0 +1,21 @@
+# Build output
+/bin/
+*.exe
+*.test
+
+# Go
+/vendor/
+coverage.out
+coverage.html
+
+# Local config / secrets — không bao giờ commit giá trị thật
+configs/local.yaml
+*.pem
+*.key
+!internal/**/*.pem.example
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

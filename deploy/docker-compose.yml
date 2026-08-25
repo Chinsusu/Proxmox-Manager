@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: vmf
+      POSTGRES_PASSWORD: vmf
+      POSTGRES_DB: vmfactory
+    ports:
+      - "5432:5432"
+    volumes:
+      - vmf-postgres-data:/var/lib/postgresql/data
+
+volumes:
+  vmf-postgres-data:

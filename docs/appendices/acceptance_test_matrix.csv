@@ -1,0 +1,36 @@
+﻿ID,Area,Scenario,Expected Result,Phase
+FNC-001,Provision,Happy path full clone,"One VM, one IP, one mapping, READY",P0
+FNC-002,API,Same Idempotency-Key same payload,Same job/resource response,P0
+FNC-003,API,Same Idempotency-Key different payload,409 IDEMPOTENCY_CONFLICT,P0
+RES-001,Reservation,Two workers request same IP,Only one reservation succeeds,P0
+RES-002,Reservation,IP pool exhausted,Fail before external mutation,P0
+PVE-001,Proxmox,VMID conflict after reserve,"Re-reserve or fail controlled, no duplicate",P0
+PVE-002,Proxmox,Clone request timeout but VM exists,Reconcile by tag and continue,P0
+PVE-003,Proxmox,Worker dies after clone,Next worker attaches existing VM,P0
+PVE-004,Proxmox,Bridge missing,Rollback and clear error,P0
+PVE-005,Proxmox,Storage full,Capacity error and alert,P0
+PVE-006,Proxmox,VM already running on retry,No duplicate start; continue,P0
+PGW-001,PGW,API unavailable before boot,VM not booted; retry,P0
+PGW-002,PGW,Create client timeout,Reconcile by metadata,P0
+PGW-003,PGW,Mapping activation delayed,Wait generation with timeout,P0
+PGW-004,PGW,Egress proof fails,Suspend mapping and quarantine,P0
+GST-001,Guest,"QGA unavailable, SSH works",Fallback according to policy,P0
+GST-002,Guest,cloud-init terminal failure,Rollback/quarantine with evidence,P0
+ID-001,Validation,Duplicate machine-id digest,BLOCK and quarantine,P0
+ID-002,Validation,Duplicate SSH host key,BLOCK and quarantine,P0
+NET-001,Validation,Second NIC present,BLOCK and quarantine,P0
+NET-002,Validation,IPv6 default route present,BLOCK and quarantine,P0
+NET-003,Validation,Wrong IPv4/default gateway,BLOCK and quarantine,P0
+WRK-001,Workload,Artifact checksum mismatch,Do not execute; rollback,P0
+WRK-002,Workload,"Install succeeds, health fails",Retry/rollback by adapter policy,P0
+JOB-001,State,Lease expires during step,"One takeover, no duplicate side effect",P0
+JOB-002,State,Two workers race job,Only one holds lease,P0
+RBK-001,Rollback,VM delete not found,Treat as success after verify,P0
+RBK-002,Rollback,PGW delete fails,Quarantine leftover and alert,P0
+DEC-001,Lifecycle,Decommission happy path,"VM/mapping/IP released, RETIRED",P0
+DEC-002,Lifecycle,Decommission retried,Idempotent terminal result,P0
+OBS-001,Observability,Every transition,Log/metric/audit contain correlation IDs,P0
+SEC-001,Security,Secret scan,No credential in log/API/audit,P0
+SEC-002,Security,Raw command injection attempt,Rejected; no arbitrary shell,P0
+DR-001,Recovery,Restore DB read-only reconcile,Drift report before workers enabled,P1
+PERF-001,Performance,10 concurrent jobs,Within agreed P95 and no DB starvation,P1

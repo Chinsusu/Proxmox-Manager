@@ -1,0 +1,54 @@
+server:
+  listen: 0.0.0.0:8080
+  public_base_url: https://vmf.example
+  shutdown_timeout: 30s
+database:
+  dsn_file: /run/credentials/postgres-dsn
+  max_open_conns: 20
+  max_idle_conns: 10
+  statement_timeout: 30s
+auth:
+  issuer: vm-factory
+  jwt_public_key_file: /etc/vm-factory/jwt-public.pem
+  required_audience: vmf-api
+proxmox:
+  clusters:
+  - id: pve-main
+    base_url: https://pve.example:8006/api2/json
+    token_id: vmfactory@pve!automation
+    token_secret_file: /run/credentials/pve-token
+    ca_file: /etc/vm-factory/pve-ca.pem
+    request_timeout: 30s
+    task_timeout: 15m
+pgw:
+  base_url: https://pgw.example/api
+  token_file: /run/credentials/pgw-token
+  request_timeout: 15s
+  activation_timeout: 90s
+provisioning:
+  default_clone_mode: full
+  worker_concurrency: 5
+  per_pve_node_concurrency: 3
+  per_storage_concurrency: 2
+  job_lease: 90s
+  job_heartbeat: 20s
+  max_attempts: 8
+guest:
+  qga_timeout: 5m
+  ssh_fallback: true
+  ssh_user: vmf-bootstrap
+  ssh_private_key_file: /run/credentials/vmf-ssh-key
+  cloud_init_timeout: 5m
+identity:
+  hmac_key_file: /run/credentials/identity-hmac-key
+  duplicate_policy:
+    active_fleet: block
+    retired_history: warn
+network:
+  ipv6_policy: deny
+  require_single_nic: true
+  require_single_default_route: true
+observability:
+  metrics_listen: 0.0.0.0:9090
+  log_format: json
+  log_level: info

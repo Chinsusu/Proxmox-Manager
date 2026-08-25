@@ -1,0 +1,193 @@
+{
+  "package": "VM Factory & Fleet Control Plane - Dev-ready Documentation Package",
+  "version": "1.2",
+  "generated_at_utc": "2026-08-25T00:00:00Z",
+  "file_count": 37,
+  "files": [
+    {
+      "path": "01_Project_Charter_and_PRD_v1.0.md",
+      "size_bytes": 12601,
+      "sha256": "b1cab93e378b43933610278f5a97fc7d10a52081359deb3c08598b3c9c9c8291"
+    },
+    {
+      "path": "02_System_Architecture_and_Technical_Design_v1.0.md",
+      "size_bytes": 15522,
+      "sha256": "3cf4c97a3a27031cb51bbd5f6cfcc542a0122d8527eb1160fe5f3c7f132fc834"
+    },
+    {
+      "path": "03_Proxmox_Provisioning_Contract_v1.0.md",
+      "size_bytes": 7938,
+      "sha256": "48663c4b4ccac8e0edd6debb2fed4282c43db49e1b49cf984ccedc7e80d79ac7"
+    },
+    {
+      "path": "04_Ubuntu_2204_Golden_Template_Specification_v1.0.md",
+      "size_bytes": 6679,
+      "sha256": "61bcc21ecea2c1470a0916aecfcba0516d4d4fa6168084913b1dd790452bda45"
+    },
+    {
+      "path": "05_VM_Lifecycle_State_Machine_v1.0.md",
+      "size_bytes": 7157,
+      "sha256": "56fadfa9f62bcbd2296dfd06add917c839ff31b3b3ad56fc85639783804c21e9"
+    },
+    {
+      "path": "06_Data_Model_IPAM_and_Resource_Registry_v1.0.md",
+      "size_bytes": 8334,
+      "sha256": "67ed0bb3d1733951ad30310ff4db12428fd4a6bc72426fbf96280ba7f38246e2"
+    },
+    {
+      "path": "07_PGW_Integration_Contract_v1.0.md",
+      "size_bytes": 4191,
+      "sha256": "7271b9e5901b2034adb92b0ac11a689e50ffb031fa0defb3257e7fb8569e4367"
+    },
+    {
+      "path": "08_Identity_Network_Egress_Validation_v1.0.md",
+      "size_bytes": 5680,
+      "sha256": "cac79a832fe73953a6c5e6c12ba4b49a179923a27f8a8d3eac5f17909208f6b6"
+    },
+    {
+      "path": "09_Observability_Alerting_and_Test_Plan_v1.0.md",
+      "size_bytes": 6567,
+      "sha256": "4622d393ac2b2bf2b53ace6c3264371719073d8e6d20af6f2470f047deca0789"
+    },
+    {
+      "path": "10_Operations_Runbook_and_Implementation_Roadmap_v1.0.md",
+      "size_bytes": 8057,
+      "sha256": "2df65be74c6859be18a200b477535c478771f7a7af74b94cfe045c23380f2a48"
+    },
+    {
+      "path": "11_Engineering_Standards_and_Git_Workflow_v1.0.md",
+      "size_bytes": 16055,
+      "sha256": "ad66b3d7c15da67f639e3961e2dbb6c688e7dde1d5a94cefacc3dc7c656b68bd"
+    },
+    {
+      "path": "README.md",
+      "size_bytes": 3416,
+      "sha256": "febfd6f4a2d1b7b5636338b43ca542881683cde9d68cfcb4e54d13ae47cbd99c"
+    },
+    {
+      "path": "VM_Factory_Master_Blueprint_v1.0.md",
+      "size_bytes": 79769,
+      "sha256": "9dc7ccd46fe8b2556d50156ec2bfc72ce39ca142410d8877e8eb2f975c345ae0"
+    },
+    {
+      "path": "adr/ADR-001-go-core.md",
+      "size_bytes": 294,
+      "sha256": "76c22f99a3613e878ad9c28c97f3ebae3142256011dd33dbd3599eaf87a3f6f5"
+    },
+    {
+      "path": "adr/ADR-002-postgres-queue.md",
+      "size_bytes": 296,
+      "sha256": "b06a6e339c34548cfd4b76760713e1240068754e94a9bed8a70db11020676788"
+    },
+    {
+      "path": "adr/ADR-003-reconciler.md",
+      "size_bytes": 252,
+      "sha256": "45ff49dc390fc2cf433409df09ec50ee91cb838f040015b70fb568dbef9a7873"
+    },
+    {
+      "path": "adr/ADR-004-proxmox-api.md",
+      "size_bytes": 280,
+      "sha256": "d397cc0afd072e4a45192a9da113ccc37194dadb0d91c2749a8f3a57ba548786"
+    },
+    {
+      "path": "adr/ADR-005-qga-first.md",
+      "size_bytes": 196,
+      "sha256": "130d7b55fe26cdbd00056f433ab1bc5eec7f4f40273775d3f415e6f01e18c77a"
+    },
+    {
+      "path": "adr/ADR-006-pgw-external.md",
+      "size_bytes": 194,
+      "sha256": "bd22492d90cc2173e636768a8d69fd18f4d41441f4fc1eeaf1c978d8959a81bf"
+    },
+    {
+      "path": "adr/ADR-007-identity-hmac.md",
+      "size_bytes": 217,
+      "sha256": "e355b9a979e2a951856018c53a1c538a1a04c5487bd22e99e7a0a9d0be363b80"
+    },
+    {
+      "path": "adr/ADR-008-full-clone.md",
+      "size_bytes": 223,
+      "sha256": "c026f02cd4785146bc4cefad2a197e234be8c8173a11d5f926119d39ca38fb80"
+    },
+    {
+      "path": "adr/ADR-009-ipv6-deny.md",
+      "size_bytes": 213,
+      "sha256": "985bc0a43508ea969182951fc4434d3bc333d0f729efed90dcead210c086cd62"
+    },
+    {
+      "path": "adr/ADR-010-no-node-agent-p0.md",
+      "size_bytes": 219,
+      "sha256": "62971c442fbf2bfeb1f78c57913f1217f8db9f926600419cd6ab10d7f89f2ef6"
+    },
+    {
+      "path": "appendices/acceptance_test_matrix.csv",
+      "size_bytes": 2640,
+      "sha256": "aa621e058dbed15a77eed6b030ca686f79795ad97bb73859c47f66ba5e944729"
+    },
+    {
+      "path": "appendices/official_references.md",
+      "size_bytes": 1158,
+      "sha256": "cc9b5bd8193b4a076f597dca3565e2f3824d5185cb4b80ef04308e6ba71e8bad"
+    },
+    {
+      "path": "appendices/risk_register.csv",
+      "size_bytes": 1539,
+      "sha256": "d5618724ec56b1638d04af376f0ff917202106f4d01a5d3d9c343e820281c626"
+    },
+    {
+      "path": "appendices/vm-factory-config.example.yaml",
+      "size_bytes": 1519,
+      "sha256": "87cb9b4fbc595c37065a40ba2356ea7cbad4762689cc5066ab079f065efc12dc"
+    },
+    {
+      "path": "appendices/vm-factory-openapi-v1.0.yaml",
+      "size_bytes": 20095,
+      "sha256": "fa40f09b26ccd41b76259369455203b4fde56de1a32b8ef6fea8d58c9d2dfd64"
+    },
+    {
+      "path": "appendices/vm-factory-schema-v1.0.sql",
+      "size_bytes": 11184,
+      "sha256": "63cd5d8b3751525d448c248a3a7d5387d43f8d546937e0af6a9dd38516736ee9"
+    },
+    {
+      "path": "assets/architecture.mmd",
+      "size_bytes": 306,
+      "sha256": "f0a1c6f855244142646794bcc3f622c9911728dd5780802ef21fe5baa0a96a8a"
+    },
+    {
+      "path": "assets/architecture.png",
+      "size_bytes": 89509,
+      "sha256": "e5b8400a2276156c138bb425ede794c7edacd2603ed1cf784da103092f50dbd1"
+    },
+    {
+      "path": "assets/data_model.png",
+      "size_bytes": 47990,
+      "sha256": "2615a3583b6267d8a53739f831abc5e115657494c974c6ac38a6f0e92f4f3876"
+    },
+    {
+      "path": "assets/deployment_topology.png",
+      "size_bytes": 68368,
+      "sha256": "0232b4b4561bdce74535dd3ac25d4e322d16c22df8371c810a2a0a9ce7735a18"
+    },
+    {
+      "path": "assets/provisioning_sequence.mmd",
+      "size_bytes": 664,
+      "sha256": "0b96dc7345d7ec14948cdcd19f7b9640d99b42acb3bbed366f1b2b1da11dc34f"
+    },
+    {
+      "path": "assets/provisioning_sequence.png",
+      "size_bytes": 34158,
+      "sha256": "b2eb5a085a69fec1dde17b1d14f650658b3f9d58e7269547331e33d3903b3171"
+    },
+    {
+      "path": "assets/state_machine.mmd",
+      "size_bytes": 723,
+      "sha256": "c3675f23f78d905b92c4a260af69aa3198e9b1fa99bded0cd5358f11a327d5a4"
+    },
+    {
+      "path": "assets/state_machine.png",
+      "size_bytes": 265980,
+      "sha256": "d56e03c3413a45113f7d076a48a86362642decb4fd27b902272d3daca03803ed"
+    }
+  ]
+}

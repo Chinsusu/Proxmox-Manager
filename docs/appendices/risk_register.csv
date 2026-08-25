@@ -1,0 +1,16 @@
+﻿ID,Risk,Impact,Likelihood,Mitigation,Owner
+R-001,Template contamination,High,Medium,Strict cleanup + canary uniqueness tests,Platform
+R-002,Unknown external side effect after timeout,High,High,Persist intent/ref + reconcile before retry,Backend
+R-003,Duplicate IP/VMID under concurrency,High,Medium,DB unique constraints + transactional reservation,Backend
+R-004,Proxmox API token over-privileged,High,Medium,Scoped role/pool + rotation,Security
+R-005,PGW unavailable blocks provisioning,Medium,Medium,Retry/backoff; never boot before mapping,Network
+R-006,Storage IOPS saturation,High,Medium,Per-storage semaphore + capacity metrics,Infrastructure
+R-007,Cloud-init nondeterminism,Medium,Medium,Versioned template + QGA + terminal status,Platform
+R-008,Rollback leaves orphan,High,Medium,Checkpointed compensation + orphan scanner,Operations
+R-009,DB restore diverges from external systems,High,Low,Read-only reconciliation and approval,Operations
+R-010,Secret appears in cloud-init/log,High,Medium,Short-lived bootstrap + redaction tests,Security
+R-011,Worker lease churn creates duplicate action,High,Low,Lease heartbeat + external reconciliation,Backend
+R-012,API/version drift,Medium,Medium,Startup self-check + contract tests,Integration
+R-013,Operator deletes VM outside lifecycle,High,Medium,Drift scanner + RBAC/process policy,Operations
+R-014,IPv6/network drift,High,Low,Gateway/guest validation + quarantine,Network
+R-015,Template update causes regression,High,Medium,DRAFT/CANDIDATE/ACTIVE promotion,Platform
