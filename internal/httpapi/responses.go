@@ -58,6 +58,8 @@ func writeMutationError(w http.ResponseWriter, r *http.Request, err error) {
 		WriteError(w, r, http.StatusConflict, "CAPACITY_UNAVAILABLE", "no capacity available")
 	case errors.Is(err, domain.ErrAlreadyLeased), errors.Is(err, domain.ErrLeaseLost):
 		WriteError(w, r, http.StatusConflict, "CONFLICT", err.Error())
+	case errors.Is(err, domain.ErrVersionConflict):
+		WriteError(w, r, http.StatusConflict, "VERSION_CONFLICT", "resource has changed since it was last read")
 	default:
 		WriteError(w, r, http.StatusInternalServerError, "INTERNAL", "internal error")
 	}

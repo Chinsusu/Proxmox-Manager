@@ -146,6 +146,7 @@ func buildMux(db *storage.DB, authn httpapi.Authenticator) *http.ServeMux {
 	runsRepo := storage.NewValidationRunRepository(db)
 	findingsRepo := storage.NewFindingRepository(db)
 	idemRepo := storage.NewIdempotencyRepository(db)
+	alertsRepo := storage.NewAlertRepository(db)
 	auditReader := audit.NewReader(db)
 	auditWriter := audit.NewWriter()
 
@@ -158,6 +159,11 @@ func buildMux(db *storage.DB, authn httpapi.Authenticator) *http.ServeMux {
 	jobH := &httpapi.JobHandlers{Jobs: jobsRepo, AuditR: auditReader, DB: db, Idem: idemRepo}
 	segmentH := &httpapi.SegmentHandlers{Segments: segmentsRepo, DB: db, Idem: idemRepo}
 	findingH := &httpapi.FindingHandlers{Findings: findingsRepo}
+	ipPoolH := &httpapi.IPPoolHandlers{Segments: segmentsRepo}
+	validationH := &httpapi.ValidationHandlers{Runs: runsRepo}
+	auditEventH := &httpapi.AuditEventHandlers{AuditR: auditReader}
+	egressH := &httpapi.EgressBindingHandlers{DB: db, Runs: runsRepo}
+	alertH := &httpapi.AlertHandlers{Alerts: alertsRepo}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/health", httpapi.HealthHandler)
@@ -181,6 +187,7 @@ func buildMux(db *storage.DB, authn httpapi.Authenticator) *http.ServeMux {
 	route("POST /v1/instances/{id}/rebuild", writeRoles, instanceH.Rebuild)
 	route("POST /v1/instances/{id}/decommission", writeRoles, instanceH.Decommission)
 
+	route("GET /v1/jobs", anyRole, jobH.List)
 	route("GET /v1/jobs/{id}", anyRole, jobH.Get)
 	route("POST /v1/jobs/{id}/retry", writeRoles, jobH.Retry)
 	route("GET /v1/jobs/{id}/events", anyRole, jobH.Events)
@@ -189,6 +196,16 @@ func buildMux(db *storage.DB, authn httpapi.Authenticator) *http.ServeMux {
 	route("POST /v1/network-segments", adminRoles, segmentH.Create)
 
 	route("GET /v1/findings", anyRole, findingH.List)
+
+	// Bo sung cho UI console (API_UI_Gap_Register v1.0) - xem
+	// vm-factory-ui/docs/API_UI_Gap_Register_v1.0.md.
+	route("GET /v1/ip-pools", anyRole, ipPoolH.List)
+	route("GET /v1/validations", anyRole, validationH.List)
+	route("GET /v1/audit-events", anyRole, auditEventH.List)
+	route("GET /v1/audit-events/export", anyRole, auditEventH.Export)
+	route("GET /v1/egress-bindings", anyRole, egressH.List)
+	route("GET /v1/alerts", anyRole, alertH.List)
+	route("POST /v1/alerts/{id}/acknowledge", writeRoles, alertH.Acknowledge)
 
 	return mux
 }

@@ -445,3 +445,69 @@ func TestRepository_Requeue_NotFound(t *testing.T) {
 		t.Fatalf("Requeue() error = %v, want domain.ErrNotFound", err)
 	}
 }
+
+// TestRepository_List_FiltersAndPaginates bao phu GET /v1/jobs (UI
+// integration, API_UI_Gap_Register mục 3.1).
+func TestRepository_List_FiltersAndPaginates(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	repo := NewRepository(db)
+	instanceID := seedInstance(ctx, t, db)
+
+	// 3 job cung instance, khac operation/state, tao cach nhau it nhat 1
+	// tick de thu tu created_at DESC on dinh.
+	var jobIDs []string
+	for i, op := range []domain.JobOperation{domain.JobOpProvision, domain.JobOpRebuild, domain.JobOpDecommission} {
+		var id string
+		if err := db.QueryRowContext(ctx, `
+			INSERT INTO provisioning_jobs (instance_id, operation, state, checkpoint)
+			VALUES ($1, $2, 'QUEUED', 'REQUESTED')
+			RETURNING id
+		`, instanceID, op).Scan(&id); err != nil {
+			t.Fatalf("seed job #%d: %v", i, err)
+		}
+		jobIDs = append(jobIDs, id)
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	t.Run("filter by operation", func(t *testing.T) {
+		got, err := repo.List(ctx, ListFilter{Operation: string(domain.JobOpRebuild), InstanceID: instanceID}, time.Time{}, "", 100)
+		if err != nil {
+			t.Fatalf("List() error: %v", err)
+		}
+		if len(got) != 1 || got[0].ID != jobIDs[1] {
+			t.Fatalf("List(operation=REBUILD) = %+v, want exactly job %s", got, jobIDs[1])
+		}
+	})
+
+	t.Run("filter by instance_id returns newest first", func(t *testing.T) {
+		got, err := repo.List(ctx, ListFilter{InstanceID: instanceID}, time.Time{}, "", 100)
+		if err != nil {
+			t.Fatalf("List() error: %v", err)
+		}
+		if len(got) != 3 {
+			t.Fatalf("len(got) = %d, want 3", len(got))
+		}
+		if got[0].ID != jobIDs[2] || got[1].ID != jobIDs[1] || got[2].ID != jobIDs[0] {
+			t.Fatalf("order = [%s,%s,%s], want newest-first [%s,%s,%s]", got[0].ID, got[1].ID, got[2].ID, jobIDs[2], jobIDs[1], jobIDs[0])
+		}
+	})
+
+	t.Run("paginates with keyset cursor", func(t *testing.T) {
+		page1, err := repo.List(ctx, ListFilter{InstanceID: instanceID}, time.Time{}, "", 2)
+		if err != nil {
+			t.Fatalf("List() page1 error: %v", err)
+		}
+		if len(page1) != 2 {
+			t.Fatalf("len(page1) = %d, want 2", len(page1))
+		}
+		last := page1[len(page1)-1]
+		page2, err := repo.List(ctx, ListFilter{InstanceID: instanceID}, last.CreatedAt, last.ID, 2)
+		if err != nil {
+			t.Fatalf("List() page2 error: %v", err)
+		}
+		if len(page2) != 1 || page2[0].ID != jobIDs[0] {
+			t.Fatalf("page2 = %+v, want exactly the oldest job %s", page2, jobIDs[0])
+		}
+	})
+}

@@ -144,3 +144,58 @@ func TestValidationRunRepository_LatestPerType(t *testing.T) {
 		t.Errorf("egress run = %s, want %s", byType["egress"].ID, egressRun.ID)
 	}
 }
+
+// TestValidationRunRepository_List bao phu GET /v1/validations (UI
+// integration, API_UI_Gap_Register mục 3.4).
+func TestValidationRunRepository_List(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	templateID := seedTemplateForIdentity(ctx, t, db)
+	inst := seedInstanceForIdentity(ctx, t, db, templateID)
+	repo := NewValidationRunRepository(db)
+
+	failRun, err := repo.Create(ctx, db, domain.ValidationRun{
+		InstanceID: inst.ID, Type: "identity", Result: domain.ValidationFail,
+		RulesetVersion: "v1", StartedAt: time.Now().Add(-time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("create fail run: %v", err)
+	}
+	passRun, err := repo.Create(ctx, db, domain.ValidationRun{
+		InstanceID: inst.ID, Type: "egress", Result: domain.ValidationPass,
+		RulesetVersion: "v1", StartedAt: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("create pass run: %v", err)
+	}
+
+	t.Run("filter by result", func(t *testing.T) {
+		got, err := repo.List(ctx, ValidationListFilter{InstanceID: inst.ID, Result: string(domain.ValidationFail)}, time.Time{}, "", 100)
+		if err != nil {
+			t.Fatalf("List() error: %v", err)
+		}
+		if len(got) != 1 || got[0].ID != failRun.ID {
+			t.Fatalf("List(result=FAIL) = %+v, want exactly %s", got, failRun.ID)
+		}
+	})
+
+	t.Run("filter by type", func(t *testing.T) {
+		got, err := repo.List(ctx, ValidationListFilter{InstanceID: inst.ID, Type: "egress"}, time.Time{}, "", 100)
+		if err != nil {
+			t.Fatalf("List() error: %v", err)
+		}
+		if len(got) != 1 || got[0].ID != passRun.ID {
+			t.Fatalf("List(type=egress) = %+v, want exactly %s", got, passRun.ID)
+		}
+	})
+
+	t.Run("no filter returns both newest first", func(t *testing.T) {
+		got, err := repo.List(ctx, ValidationListFilter{InstanceID: inst.ID}, time.Time{}, "", 100)
+		if err != nil {
+			t.Fatalf("List() error: %v", err)
+		}
+		if len(got) != 2 || got[0].ID != passRun.ID || got[1].ID != failRun.ID {
+			t.Fatalf("List() = %+v, want [%s,%s] newest-first", got, passRun.ID, failRun.ID)
+		}
+	})
+}
