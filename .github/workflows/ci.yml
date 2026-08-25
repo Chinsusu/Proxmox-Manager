@@ -32,11 +32,33 @@ jobs:
   test:
     needs: lint
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: vmf
+          POSTGRES_PASSWORD: vmf
+          POSTGRES_DB: vmfactory
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vmf"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Dung cho ca migrate CLI va integration test (internal/*/repository_integration_test.go
+      # tu skip neu bien nay rong - xem openTestDB trong cac file do).
+      DATABASE_URL: postgres://vmf:vmf@localhost:5432/vmfactory?sslmode=disable
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
+      - name: apply migrations
+        run: |
+          go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+          migrate -path migrations -database "$DATABASE_URL" up
       - run: go build ./...
       - run: go test -race -coverprofile=coverage.out ./...
 
@@ -45,7 +67,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # gitleaks scan theo dai commit base..head cua PR - can full
+          # history, checkout mac dinh shallow-clone (depth=1) lam
+          # "unknown revision" (xem log job security lan chay truoc).
+          fetch-depth: 0
       - uses: gitleaks/gitleaks-action@v2
+        env:
+          # gitleaks-action >= v2 (2026) bat buoc token nay khi scan PR
+          # (breaking change cua chinh action, khong phai finding secret that).
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
