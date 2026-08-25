@@ -81,8 +81,15 @@ func (rb *Rollback) Execute(ctx context.Context, inst *domain.VMInstance, job *d
 		}
 	}
 
+	// KHONG release IP neu buoc TRUOC do (VM delete/PGW delete) da that
+	// bai - lam vay se lam IP quay lai FREE va co the duoc gan cho
+	// instance khac trong khi PGW mapping/VM cu co the van con treo tren
+	// dung dia chi do (leak that su, khong chi tren giay to). Rollback
+	// PHAI giu MOI resource lien quan lai cung nhau khi mot phan that
+	// bai (doc comment struct Rollback: "giu nguyen resource leftover
+	// thay vi xoa record de che giau loi").
 	ipReleased := false
-	if cp.IPAllocationID != "" {
+	if cp.IPAllocationID != "" && len(failures) == 0 {
 		if err := rb.IPAM.Release(ctx, cp.IPAllocationID); err != nil {
 			failures = append(failures, fmt.Sprintf("release ip: %v", err))
 		} else {

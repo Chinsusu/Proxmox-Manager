@@ -279,3 +279,50 @@ func TestSampleAdapter_Remove_NoMarkerIsIdempotentSuccess(t *testing.T) {
 		t.Fatalf("Remove() error: %v, want nil (chua tung cai, treat not-found as success)", err)
 	}
 }
+
+// TestSampleAdapter_Health_MaliciousServiceName_NoShellInjection: bao
+// phu SEC-002 cua docs/appendices/acceptance_test_matrix.csv ("Raw
+// command injection attempt, Rejected, no arbitrary shell"). ServiceName
+// trong marker (ghi boi chinh Install() tu WorkloadSpec do API nhan -
+// P0-09) chua ky tu dac biet shell — xac nhan no den QGA dung nguyen
+// van la MOT phan tu mang argv, khong bi tach/thong dich thanh nhieu
+// lenh, vi mustExec/WaitExec luon truyen []string qua QGA exec (command
+// array, khong phai "sh -c <string>") — khong co diem nao trong
+// SampleAdapter noi chuoi thanh mot shell command.
+func TestSampleAdapter_Health_MaliciousServiceName_NoShellInjection(t *testing.T) {
+	const maliciousServiceName = "vmf-demo; rm -rf / #"
+	markerJSON, err := json.Marshal(installMarker{Name: "demo", ServiceName: maliciousServiceName, InstallPath: "/opt/vmf-workload/demo/run.sh", SHA256: "deadbeef"})
+	if err != nil {
+		t.Fatalf("marshal marker: %v", err)
+	}
+
+	var capturedHealthCheckCmd []string
+	fake := newFakePVE(func(command []string) (int, string, string) {
+		if len(command) > 0 && command[0] == "cat" {
+			return 0, string(markerJSON), ""
+		}
+		capturedHealthCheckCmd = command
+		return 0, "active", ""
+	})
+	srv := httptest.NewServer(fake.handler())
+	defer srv.Close()
+
+	adapter := NewSampleAdapter(newAdapterAgainst(srv))
+	report, err := adapter.Health(context.Background(), proxmox.VMRef{Node: "n1", VMID: 100})
+	if err != nil {
+		t.Fatalf("Health() error: %v", err)
+	}
+	if !report.Healthy {
+		t.Fatalf("report = %+v, want Healthy=true", report)
+	}
+
+	want := []string{"systemctl", "is-active", maliciousServiceName}
+	if len(capturedHealthCheckCmd) != len(want) {
+		t.Fatalf("guest exec command = %q, want exactly %q (ServiceName phai la MOT phan tu argv, khong bi shell tach)", capturedHealthCheckCmd, want)
+	}
+	for i := range want {
+		if capturedHealthCheckCmd[i] != want[i] {
+			t.Fatalf("guest exec command[%d] = %q, want %q", i, capturedHealthCheckCmd[i], want[i])
+		}
+	}
+}
