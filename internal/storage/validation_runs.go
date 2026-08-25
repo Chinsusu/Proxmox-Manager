@@ -65,6 +65,37 @@ func (r *ValidationRunRepository) LatestByType(ctx context.Context, instanceID, 
 	return scanValidationRun(row)
 }
 
+// LatestPerType trả run mới nhất cho MỖI type đã từng chạy trên một
+// instance (identity/egress/workload/...) — dùng cho GET
+// /v1/instances/{id}/evidence (P0-09): "Get latest validation evidence"
+// nghĩa là bức tranh hiện tại của mọi loại validation, không phải toàn
+// bộ lịch sử.
+func (r *ValidationRunRepository) LatestPerType(ctx context.Context, instanceID string) ([]domain.ValidationRun, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT DISTINCT ON (type) `+validationRunColumns+`
+		FROM validation_runs
+		WHERE instance_id = $1
+		ORDER BY type, started_at DESC
+	`, instanceID)
+	if err != nil {
+		return nil, fmt.Errorf("storage: latest validation runs per type: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var runs []domain.ValidationRun
+	for rows.Next() {
+		run, err := scanValidationRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		runs = append(runs, *run)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("storage: iterate validation runs: %w", err)
+	}
+	return runs, nil
+}
+
 const validationRunColumns = `id, instance_id, job_id, type, result, ruleset_version, evidence, started_at, finished_at`
 
 type validationRunRowScanner interface {

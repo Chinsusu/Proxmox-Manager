@@ -116,6 +116,20 @@ func (r *Repository) Get(ctx context.Context, allocationID string) (*domain.IPAl
 	return scanAllocation(r.db.QueryRowContext(ctx, selectAllocationByID, allocationID))
 }
 
+// FindByInstance đọc allocation RESERVED/ASSIGNED hiện tại của một
+// instance (mới nhất nếu có nhiều) — dùng cho Instance.ip_address ở API
+// layer (P0-09), vốn không lưu IP trực tiếp trên vm_instances (nguồn sự
+// thật là ip_allocations). Trả domain.ErrNotFound nếu instance chưa có
+// allocation nào đang hoạt động (vd còn ở REQUESTED, chưa qua RESERVING).
+func (r *Repository) FindByInstance(ctx context.Context, instanceID string) (*domain.IPAllocation, error) {
+	return scanAllocation(r.db.QueryRowContext(ctx, `
+		SELECT id, segment_id, address, instance_id, state, reserved_until, assigned_at, released_at, created_at
+		FROM ip_allocations
+		WHERE instance_id = $1 AND state IN ('RESERVED', 'ASSIGNED')
+		ORDER BY created_at DESC LIMIT 1
+	`, instanceID))
+}
+
 const selectAllocationByID = `
 	SELECT id, segment_id, address, instance_id, state, reserved_until, assigned_at, released_at, created_at
 	FROM ip_allocations

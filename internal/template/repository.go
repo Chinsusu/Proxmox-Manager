@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Chinsusu/vm-factory/internal/domain"
 	"github.com/Chinsusu/vm-factory/internal/storage"
@@ -47,8 +48,13 @@ func isValidTransition(from, to domain.TemplateState) bool {
 
 // Create đăng ký một template version mới ở state DRAFT (Phần IV mục
 // 9: "DRAFT → CANDIDATE → validation suite → ACTIVE"), bất kể State
-// truyền vào trong tham số — chỉ Promote mới được đổi state.
-func (r *Repository) Create(ctx context.Context, t domain.Template) (*domain.Template, error) {
+// truyền vào trong tham số — chỉ Promote mới được đổi state. Nhận
+// storage.QueryRower để caller (vd API layer ghép cùng RunIdempotent)
+// tham gia transaction của chính họ — tránh Create + ghi idempotency
+// record ở hai transaction tách rời, mất atomicity (bug thật phát hiện
+// khi wiring httpapi ở P0-09: retry idempotent có thể tạo trùng template
+// nếu Store() lỗi sau khi Create() đã commit độc lập).
+func (r *Repository) Create(ctx context.Context, q storage.QueryRower, t domain.Template) (*domain.Template, error) {
 	cloneModes := t.CloneModeAllowed
 	if len(cloneModes) == 0 {
 		cloneModes = []string{"full"}
@@ -58,7 +64,7 @@ func (r *Repository) Create(ctx context.Context, t domain.Template) (*domain.Tem
 		manifest = json.RawMessage("{}")
 	}
 
-	row := r.db.QueryRowContext(ctx, `
+	row := q.QueryRowContext(ctx, `
 		INSERT INTO vm_templates
 			(name, family, version, os_family, os_version, architecture,
 			 pve_cluster_id, pve_node, pve_template_vmid, storage,
@@ -85,15 +91,19 @@ func (r *Repository) GetActiveByFamily(ctx context.Context, family string) (*dom
 	`, family))
 }
 
-// List trả template theo family (rỗng = mọi family), mới nhất trước.
-func (r *Repository) List(ctx context.Context, family string) ([]domain.Template, error) {
-	query := `SELECT ` + templateColumns + ` FROM vm_templates`
+// List trả template theo family (rỗng = mọi family), mới nhất trước,
+// keyset pagination (afterCreatedAt/afterID rỗng = "từ đầu").
+func (r *Repository) List(ctx context.Context, family string, afterCreatedAt time.Time, afterID string, limit int) ([]domain.Template, error) {
+	query := `SELECT ` + templateColumns + ` FROM vm_templates WHERE 1=1`
 	args := []any{}
 	if family != "" {
-		query += ` WHERE family = $1`
 		args = append(args, family)
+		query += fmt.Sprintf(" AND family = $%d", len(args))
 	}
-	query += ` ORDER BY created_at DESC`
+	args = append(args, nullableTime(afterCreatedAt), nullableString(afterID))
+	query += fmt.Sprintf(" AND ($%d::timestamptz IS NULL OR (created_at, id) < ($%d::timestamptz, $%d::uuid))", len(args)-1, len(args)-1, len(args))
+	args = append(args, limit)
+	query += fmt.Sprintf(" ORDER BY created_at DESC, id DESC LIMIT $%d", len(args))
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -115,49 +125,60 @@ func (r *Repository) List(ctx context.Context, family string) ([]domain.Template
 	return templates, nil
 }
 
-// Promote chuyển template sang target state, đúng theo validTransitions.
-// Khi promote lên ACTIVE, mọi template ACTIVE khác cùng family bị
-// chuyển DEPRECATED trong cùng transaction — đảm bảo invariant "một
-// ACTIVE default cho mỗi family" (Phần IV mục 9), không tạo khoảng
-// trống hai bản ACTIVE hay không bản nào.
+// Promote chuyển template sang target state trong transaction riêng của
+// chính nó — tiện dụng cho caller không cần ghép transaction ngoài (vd
+// test). Xem PromoteTx nếu caller cần ghép cùng transaction khác (vd API
+// layer ghép cùng RunIdempotent — cùng lý do atomicity đã sửa cho Create).
 func (r *Repository) Promote(ctx context.Context, id string, target domain.TemplateState) (*domain.Template, error) {
 	var result *domain.Template
 	err := storage.WithTx(ctx, r.db, func(tx *sql.Tx) error {
-		current, err := scanTemplate(tx.QueryRowContext(ctx, selectTemplateByID+` FOR UPDATE`, id))
+		promoted, err := r.PromoteTx(ctx, tx, id, target)
 		if err != nil {
 			return err
 		}
-
-		if !isValidTransition(current.State, target) {
-			return fmt.Errorf("%w: %s -> %s", domain.ErrInvalidTransition, current.State, target)
-		}
-
-		if target == domain.TemplateActive {
-			if _, err := tx.ExecContext(ctx, `
-				UPDATE vm_templates SET state = 'DEPRECATED', updated_at = now()
-				WHERE family = $1 AND state = 'ACTIVE' AND id != $2
-			`, current.Family, id); err != nil {
-				return fmt.Errorf("template: demote previous active: %w", err)
-			}
-		}
-
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE vm_templates SET state = $1, updated_at = now() WHERE id = $2
-		`, target, id); err != nil {
-			return fmt.Errorf("template: promote: %w", err)
-		}
-
-		updated, err := scanTemplate(tx.QueryRowContext(ctx, selectTemplateByID, id))
-		if err != nil {
-			return err
-		}
-		result = updated
+		result = promoted
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	return result, nil
+}
+
+// PromoteTx là logic thật của Promote, chạy trong tx của caller — chuyển
+// template sang target state, đúng theo validTransitions. Khi promote
+// lên ACTIVE, mọi template ACTIVE khác cùng family bị chuyển DEPRECATED
+// trong cùng transaction — đảm bảo invariant "một ACTIVE default cho
+// mỗi family" (Phần IV mục 9), không tạo khoảng trống hai bản ACTIVE
+// hay không bản nào. SELECT ... FOR UPDATE khoá row để đọc current.State
+// và ghi target cùng một atomic step, tránh race hai request promote
+// đồng thời cùng đọc thấy state cũ.
+func (r *Repository) PromoteTx(ctx context.Context, tx *sql.Tx, id string, target domain.TemplateState) (*domain.Template, error) {
+	current, err := scanTemplate(tx.QueryRowContext(ctx, selectTemplateByID+` FOR UPDATE`, id))
+	if err != nil {
+		return nil, err
+	}
+
+	if !isValidTransition(current.State, target) {
+		return nil, fmt.Errorf("%w: %s -> %s", domain.ErrInvalidTransition, current.State, target)
+	}
+
+	if target == domain.TemplateActive {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE vm_templates SET state = 'DEPRECATED', updated_at = now()
+			WHERE family = $1 AND state = 'ACTIVE' AND id != $2
+		`, current.Family, id); err != nil {
+			return nil, fmt.Errorf("template: demote previous active: %w", err)
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE vm_templates SET state = $1, updated_at = now() WHERE id = $2
+	`, target, id); err != nil {
+		return nil, fmt.Errorf("template: promote: %w", err)
+	}
+
+	return scanTemplate(tx.QueryRowContext(ctx, selectTemplateByID, id))
 }
 
 // SetValidationStatus cập nhật validation_status sau khi chạy offline
@@ -212,4 +233,18 @@ func scanTemplate(row rowScanner) (*domain.Template, error) {
 	}
 	t.BuildManifest = manifest
 	return &t, nil
+}
+
+func nullableTime(t time.Time) any {
+	if t.IsZero() {
+		return nil
+	}
+	return t
+}
+
+func nullableString(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }
