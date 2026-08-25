@@ -5,7 +5,7 @@ COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildTime=$(BUILD_TIME)
 
-.PHONY: fmt lint vet test build db-up db-down migrate-up migrate-down lab-mocks clean
+.PHONY: fmt lint vet test build release db-up db-down migrate-up migrate-down lab-mocks clean
 
 fmt:
 	gofmt -l .
@@ -24,6 +24,11 @@ build:
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/vmf-api ./cmd/api
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/vmf-worker ./cmd/worker
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/vmf ./cmd/cli
+
+# release: dong goi binary + migrations + configs + systemd units thanh
+# mot tarball co checksum (P0-12) - xem scripts/build-release.sh.
+release:
+	scripts/build-release.sh
 
 db-up:
 	docker compose -f deploy/docker-compose.yml up -d postgres

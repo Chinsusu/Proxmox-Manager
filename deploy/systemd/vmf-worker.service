@@ -1,0 +1,30 @@
+[Unit]
+Description=VM Factory provisioning worker
+Documentation=https://github.com/Chinsusu/Proxmox-Manager
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vmf
+Group=vmf
+ExecStart=/opt/vmf/current/bin/vmf-worker --config /etc/vm-factory/config.yaml
+WorkingDirectory=/opt/vmf/current
+Restart=on-failure
+RestartSec=5s
+# Job dang RUNNING can thoi gian rollback/cleanup that su khi bi dung
+# (Phan V muc 6) - khong SIGKILL ngay, cho graceful shutdown qua
+# signal.NotifyContext(SIGTERM) da wiring trong cmd/worker/main.go.
+TimeoutStopSec=60s
+
+# ReadOnlyPaths /run/credentials cho dsn_file/token_secret_file/
+# hmac_key_file/ssh_private_key_file (khop configs/vm-factory.example.yaml).
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadOnlyPaths=/etc/vm-factory /run/credentials /opt/vmf/current
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

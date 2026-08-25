@@ -1,0 +1,31 @@
+[Unit]
+Description=VM Factory API service
+Documentation=https://github.com/Chinsusu/Proxmox-Manager
+After=network-online.target
+Wants=network-online.target
+# vmf-api chỉ đọc/ghi DB — không phụ thuộc cứng vmf-worker (Phần I mục
+# 9: "VM Factory outage không được làm PGW hoặc VM data plane dừng").
+
+[Service]
+Type=simple
+User=vmf
+Group=vmf
+ExecStart=/opt/vmf/current/bin/vmf-api --config /etc/vm-factory/config.yaml
+WorkingDirectory=/opt/vmf/current
+Restart=on-failure
+RestartSec=5s
+
+# Hardening (Phần XI mục 8: production khong InsecureSkipVerify, chay
+# non-root) — ReadOnlyPaths cho /etc/vm-factory (config.yaml) va
+# /run/credentials (dsn_file/token_secret_file/jwt_public_key_file,
+# khop configs/vm-factory.example.yaml) vi credential file chi doc,
+# khong bao gio ghi tu chinh process.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadOnlyPaths=/etc/vm-factory /run/credentials /opt/vmf/current
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
