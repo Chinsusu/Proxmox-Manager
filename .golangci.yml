@@ -1,18 +1,29 @@
+version: "2"
 linters:
   enable:
-    - govet
-    - staticcheck
-    - errcheck
-    - unused
-    - ineffassign
-    - revive
-    - gosec
     - bodyclose
-    - sqlclosecheck
-    - noctx
-    - errorlint
     - contextcheck
-run:
-  timeout: 5m
-issues:
-  exclude-use-default: false
+    - errorlint
+    - gosec
+    - noctx
+    - revive
+    - sqlclosecheck
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+    rules:
+      # httptest.NewRequest không nhận context là pattern chuẩn trong test Go;
+      # dùng NewRequestWithContext ép go1.23 (go.mod hiện pin go1.22).
+      - path: _test\.go
+        linters:
+          - noctx
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

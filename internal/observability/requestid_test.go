@@ -8,7 +8,7 @@ import (
 
 func TestRequestIDMiddleware_GeneratesWhenMissing(t *testing.T) {
 	var captured string
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	next := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		captured = RequestIDFromContext(r.Context())
 	})
 
@@ -28,7 +28,7 @@ func TestRequestIDMiddleware_GeneratesWhenMissing(t *testing.T) {
 func TestRequestIDMiddleware_ReusesClientHeader(t *testing.T) {
 	const clientID = "req_client_supplied"
 	var captured string
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	next := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		captured = RequestIDFromContext(r.Context())
 	})
 

@@ -97,7 +97,10 @@ type alwaysReady struct{}
 func (alwaysReady) Ready() error { return nil }
 
 func loadRSAPublicKey(path string) (*rsa.PublicKey, error) {
-	raw, err := os.ReadFile(path)
+	// path đến từ config.Auth.JWTPublicKeyFile do operator chỉ định lúc
+	// deploy, không phải request input — không phải path traversal qua
+	// user input mà gosec G304 cảnh báo.
+	raw, err := os.ReadFile(path) //nolint:gosec // G304: path là config field do operator kiểm soát, không phải request input
 	if err != nil {
 		return nil, err
 	}

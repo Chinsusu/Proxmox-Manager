@@ -15,6 +15,7 @@ import (
 // Duration bọc time.Duration để yaml.v3 parse được chuỗi kiểu "30s", "15m".
 type Duration time.Duration
 
+// UnmarshalYAML implement yaml.Unmarshaler cho Duration.
 func (d *Duration) UnmarshalYAML(node *yaml.Node) error {
 	parsed, err := time.ParseDuration(node.Value)
 	if err != nil {
@@ -24,14 +25,18 @@ func (d *Duration) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
+// AsTimeDuration trả Duration dạng time.Duration chuẩn để dùng trực tiếp
+// với time.After/context.WithTimeout.
 func (d Duration) AsTimeDuration() time.Duration { return time.Duration(d) }
 
+// ServerConfig cấu hình HTTP server của vmf-api.
 type ServerConfig struct {
 	Listen          string   `yaml:"listen"`
 	PublicBaseURL   string   `yaml:"public_base_url"`
 	ShutdownTimeout Duration `yaml:"shutdown_timeout"`
 }
 
+// DatabaseConfig cấu hình kết nối PostgreSQL.
 type DatabaseConfig struct {
 	DSNFile          string   `yaml:"dsn_file"`
 	MaxOpenConns     int      `yaml:"max_open_conns"`
@@ -39,12 +44,14 @@ type DatabaseConfig struct {
 	StatementTimeout Duration `yaml:"statement_timeout"`
 }
 
+// AuthConfig cấu hình verify JWT bearer token.
 type AuthConfig struct {
 	Issuer           string `yaml:"issuer"`
 	JWTPublicKeyFile string `yaml:"jwt_public_key_file"`
 	RequiredAudience string `yaml:"required_audience"`
 }
 
+// ProxmoxClusterConfig cấu hình một Proxmox cluster mà vmf-worker kết nối tới.
 type ProxmoxClusterConfig struct {
 	ID              string   `yaml:"id"`
 	BaseURL         string   `yaml:"base_url"`
@@ -55,10 +62,12 @@ type ProxmoxClusterConfig struct {
 	TaskTimeout     Duration `yaml:"task_timeout"`
 }
 
+// ProxmoxConfig liệt kê mọi Proxmox cluster đã đăng ký.
 type ProxmoxConfig struct {
 	Clusters []ProxmoxClusterConfig `yaml:"clusters"`
 }
 
+// PGWConfig cấu hình kết nối tới PGW API (external dependency, ADR-006).
 type PGWConfig struct {
 	BaseURL           string   `yaml:"base_url"`
 	TokenFile         string   `yaml:"token_file"`
@@ -66,6 +75,7 @@ type PGWConfig struct {
 	ActivationTimeout Duration `yaml:"activation_timeout"`
 }
 
+// ProvisioningConfig cấu hình concurrency và retry cho provisioning worker.
 type ProvisioningConfig struct {
 	DefaultCloneMode      string   `yaml:"default_clone_mode"`
 	WorkerConcurrency     int      `yaml:"worker_concurrency"`
@@ -76,6 +86,7 @@ type ProvisioningConfig struct {
 	MaxAttempts           int      `yaml:"max_attempts"`
 }
 
+// GuestConfig cấu hình cách vmf-worker chờ và giao tiếp với guest OS.
 type GuestConfig struct {
 	QGATimeout        Duration `yaml:"qga_timeout"`
 	SSHFallback       bool     `yaml:"ssh_fallback"`
@@ -84,22 +95,27 @@ type GuestConfig struct {
 	CloudInitTimeout  Duration `yaml:"cloud_init_timeout"`
 }
 
+// DuplicatePolicyConfig chốt hành vi khi phát hiện machine-id digest trùng,
+// theo Phần VIII mục 10 (active fleet luôn block, lịch sử retired configurable).
 type DuplicatePolicyConfig struct {
 	ActiveFleet    string `yaml:"active_fleet"`
 	RetiredHistory string `yaml:"retired_history"`
 }
 
+// IdentityConfig cấu hình HMAC digest và duplicate policy cho identity validation.
 type IdentityConfig struct {
 	HMACKeyFile     string                `yaml:"hmac_key_file"`
 	DuplicatePolicy DuplicatePolicyConfig `yaml:"duplicate_policy"`
 }
 
+// NetworkConfig chốt policy IPv6/NIC/route áp dụng cho mọi instance.
 type NetworkConfig struct {
 	IPv6Policy                string `yaml:"ipv6_policy"`
 	RequireSingleNIC          bool   `yaml:"require_single_nic"`
 	RequireSingleDefaultRoute bool   `yaml:"require_single_default_route"`
 }
 
+// ObservabilityConfig cấu hình metrics endpoint và log format/level.
 type ObservabilityConfig struct {
 	MetricsListen string `yaml:"metrics_listen"`
 	LogFormat     string `yaml:"log_format"`
@@ -123,7 +139,10 @@ type Config struct {
 // Load đọc file YAML tại path, áp env override, rồi validate field bắt buộc.
 // Không log nội dung config vì có thể chứa path tới secret file.
 func Load(path string) (*Config, error) {
-	raw, err := os.ReadFile(path)
+	// path đến từ --config flag/env do operator triển khai chỉ định lúc
+	// khởi động process, không phải input theo từng request — không phải
+	// path traversal qua user input mà gosec G304 cảnh báo.
+	raw, err := os.ReadFile(path) //nolint:gosec // G304: path là startup flag do operator kiểm soát, không phải request input
 	if err != nil {
 		return nil, fmt.Errorf("config: read %s: %w", path, err)
 	}

@@ -13,6 +13,7 @@ type ErrorEnvelope struct {
 	Error ErrorBody `json:"error"`
 }
 
+// ErrorBody là nội dung field "error" trong ErrorEnvelope.
 type ErrorBody struct {
 	Code      string         `json:"code"`
 	Message   string         `json:"message"`
@@ -26,6 +27,8 @@ func WriteError(w http.ResponseWriter, r *http.Request, status int, code, messag
 	WriteErrorWithDetails(w, r, status, code, message, nil)
 }
 
+// WriteErrorWithDetails giống WriteError nhưng cho phép đính kèm details
+// (khớp field "details" trong ErrorEnvelope).
 func WriteErrorWithDetails(w http.ResponseWriter, r *http.Request, status int, code, message string, details map[string]any) {
 	envelope := ErrorEnvelope{Error: ErrorBody{
 		Code:      code,

@@ -16,6 +16,7 @@ import (
 // Role là RBAC role baseline P0 theo Phần IX mục 9.
 type Role string
 
+// Bốn role RBAC baseline P0 theo Phần IX mục 9.
 const (
 	RoleViewer   Role = "viewer"
 	RoleOperator Role = "operator"
@@ -52,6 +53,7 @@ type JWTAuthenticator struct {
 	ExpectedAudience string
 }
 
+// Authenticate implement Authenticator cho JWTAuthenticator.
 func (a *JWTAuthenticator) Authenticate(tokenString string) (Principal, error) {
 	claims := jwt.MapClaims{}
 	_, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (interface{}, error) {

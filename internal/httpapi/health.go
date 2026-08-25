@@ -13,7 +13,7 @@ type ReadyChecker interface {
 
 // HealthHandler ứng với GET /v1/health trong api/openapi.yaml — public,
 // không qua AuthMiddleware, chỉ xác nhận process còn sống.
-func HealthHandler(w http.ResponseWriter, r *http.Request) {
+func HealthHandler(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
@@ -22,7 +22,7 @@ func HealthHandler(w http.ResponseWriter, r *http.Request) {
 // ReadyHandler ứng với GET /v1/ready — public, trả 503 nếu dependency
 // (DB, ...) chưa sẵn sàng.
 func ReadyHandler(checker ReadyChecker) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if err := checker.Ready(); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)

@@ -121,7 +121,7 @@ type stubAuthenticator struct {
 func (s stubAuthenticator) Authenticate(string) (Principal, error) { return s.principal, s.err }
 
 func TestAuthMiddleware_MissingHeader(t *testing.T) {
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { t.Fatal("should not reach handler") })
+	next := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { t.Fatal("should not reach handler") })
 	handler := AuthMiddleware(stubAuthenticator{})(next)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/instances", nil)
@@ -136,7 +136,7 @@ func TestAuthMiddleware_MissingHeader(t *testing.T) {
 func TestAuthMiddleware_ValidToken_SetsPrincipal(t *testing.T) {
 	want := Principal{Subject: "op-1", Role: RoleOperator}
 	var got Principal
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	next := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		got, _ = PrincipalFromContext(r.Context())
 	})
 	handler := AuthMiddleware(stubAuthenticator{principal: want})(next)
@@ -155,7 +155,7 @@ func TestAuthMiddleware_ValidToken_SetsPrincipal(t *testing.T) {
 }
 
 func TestRequireRole_Forbidden(t *testing.T) {
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { t.Fatal("should not reach handler") })
+	next := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { t.Fatal("should not reach handler") })
 	handler := RequireRole(RoleAdmin)(next)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/instances", nil)
@@ -170,7 +170,7 @@ func TestRequireRole_Forbidden(t *testing.T) {
 
 func TestRequireRole_Allowed(t *testing.T) {
 	called := false
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called = true })
+	next := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })
 	handler := RequireRole(RoleAdmin, RoleOperator)(next)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/instances", nil)
