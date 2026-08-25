@@ -21,11 +21,12 @@ jobs:
           go install golang.org/x/tools/cmd/goimports@latest
           diff=$(goimports -l .)
           if [ -n "$diff" ]; then echo "$diff"; echo "run: goimports -w ."; exit 1; fi
-      - uses: golangci/golangci-lint-action@v6
+      - uses: golangci/golangci-lint-action@v7
         with:
-          # Pin tuong minh, khong dung "latest": action resolve "latest" ve
-          # dong v1.x (1.64.8) trong khi .golangci.yml o day la config v2.
-          # Ban local da verify sach voi v2.13.1 - giu dong bo hai ben.
+          # golangci-lint-action v6 KHONG ho tro golangci-lint v2 (loi ro rang
+          # tu action). .golangci.yml o day la config schema v2 (da migrate
+          # bang `golangci-lint migrate`) nen bat buoc dung action v7+.
+          # Pin tuong minh, khong dung "latest", de khop ban da verify local.
           version: v2.13.1
 
   test:
