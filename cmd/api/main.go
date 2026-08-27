@@ -170,7 +170,7 @@ func buildMux(db *storage.DB, authn httpapi.Authenticator) *http.ServeMux {
 	mux.HandleFunc("GET /v1/ready", httpapi.ReadyHandler(db))
 
 	route := func(pattern string, roles []httpapi.Role, h http.HandlerFunc) {
-		mux.Handle(pattern, httpapi.AuthMiddleware(authn)(httpapi.RequireRole(roles...)(h)))
+		mux.Handle(pattern, httpapi.AuthMiddleware(authn)(httpapi.RequireRole(roles...)(httpapi.ValidateUUIDParam(h))))
 	}
 
 	route("GET /v1/templates", anyRole, templateH.List)
