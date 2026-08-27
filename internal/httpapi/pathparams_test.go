@@ -47,7 +47,7 @@ func muxWithUUIDGuard(t *testing.T, pattern string, h http.HandlerFunc) *http.Se
 
 func TestValidateUUIDParam_RejectsMalformedID(t *testing.T) {
 	called := false
-	mux := muxWithUUIDGuard(t, "GET /v1/jobs/{id}", func(w http.ResponseWriter, r *http.Request) {
+	mux := muxWithUUIDGuard(t, "GET /v1/jobs/{id}", func(_ http.ResponseWriter, _ *http.Request) {
 		called = true
 	})
 
@@ -92,7 +92,7 @@ func TestValidateUUIDParam_PassesValidUUID(t *testing.T) {
 
 func TestValidateUUIDParam_IgnoresRoutesWithoutID(t *testing.T) {
 	called := false
-	mux := muxWithUUIDGuard(t, "GET /v1/jobs", func(w http.ResponseWriter, r *http.Request) {
+	mux := muxWithUUIDGuard(t, "GET /v1/jobs", func(w http.ResponseWriter, _ *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	})
@@ -108,7 +108,7 @@ func TestValidateUUIDParam_IgnoresRoutesWithoutID(t *testing.T) {
 func TestValidateUUIDParam_RejectsSubresourceRoutes(t *testing.T) {
 	// Các route action như POST /v1/jobs/{id}/retry cũng phải được chặn.
 	called := false
-	mux := muxWithUUIDGuard(t, "POST /v1/jobs/{id}/retry", func(w http.ResponseWriter, r *http.Request) {
+	mux := muxWithUUIDGuard(t, "POST /v1/jobs/{id}/retry", func(_ http.ResponseWriter, _ *http.Request) {
 		called = true
 	})
 
