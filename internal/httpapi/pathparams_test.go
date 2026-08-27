@@ -21,10 +21,10 @@ func TestIsCanonicalUUID(t *testing.T) {
 	invalid := []string{
 		"",
 		"nonexistent-999",
-		"a1b2c3d4e5f67a8b9c0de1f2a3b4c5d6",                       // thiếu dấu gạch
-		"{a1b2c3d4-e5f6-7a8b-9c0d-e1f2a3b4c5d6}",                 // dạng ngoặc nhọn Postgres chấp nhận nhưng API không
-		"a1b2c3d4-e5f6-7a8b-9c0d-e1f2a3b4c5dg",                   // ký tự ngoài hex
-		"a1b2c3d4-e5f6-7a8b-9c0d-e1f2a3b4c5d67",                  // dài 37
+		"a1b2c3d4e5f67a8b9c0de1f2a3b4c5d6",              // thiếu dấu gạch
+		"{a1b2c3d4-e5f6-7a8b-9c0d-e1f2a3b4c5d6}",        // dạng ngoặc nhọn Postgres chấp nhận nhưng API không
+		"a1b2c3d4-e5f6-7a8b-9c0d-e1f2a3b4c5dg",          // ký tự ngoài hex
+		"a1b2c3d4-e5f6-7a8b-9c0d-e1f2a3b4c5d67",         // dài 37
 		"urn:uuid:a1b2c3d4-e5f6-7a8b-9c0d-e1f2a3b4c5d6", // dạng URN
 		"a1b2c3d4-e5f6-7a8b-9c0d-e1f2a3b4c5d6 ",         // trailing space
 	}
